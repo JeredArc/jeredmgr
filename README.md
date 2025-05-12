@@ -71,12 +71,12 @@ It's as simple as that!
 
 Projects are simply and solely stored using an `.env` file for each project in the `projects` sub-directory, where the filename specifies the project name. The following variables are available:
 
-- `ENABLED`: Project enabled status (true/false)
-- `REPO_URL`: GitHub repository URL (must start with https://github.com/ to work with PAT authentication)
+- `ENABLED`: Project enabled status (`true`/`false`)
+- `REPO_URL`: GitHub repository URL (must start with `https://github.com/` to work with PAT authentication)
 - `PATH`: Local project path
-- `USE_GLOBAL_PAT`: Whether to use JeredMgr's global GitHub PAT (true/false)
-- `LOCAL_PAT`: Project-specific GitHub PAT (if USE_GLOBAL_PAT = false, leave empty for no or git-configured authentication)
-- `TYPE`: Project type (docker/service/scripts)
+- `USE_GLOBAL_PAT`: Whether to use JeredMgr's global GitHub PAT (`true`/`false`)
+- `LOCAL_PAT`: Project-specific GitHub PAT (if `USE_GLOBAL_PAT = false`, leave empty for no or git-configured authentication)
+- `TYPE`: Project type (`docker`/`service`/`scripts`)
 
 In the `projects` directory, there are additionally stored:
 - an obligatory `<project-name>.docker-compose.yml` file or link for enabled type `docker` projects, which will be used for all `docker compose` commands

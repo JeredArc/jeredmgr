@@ -163,22 +163,29 @@ prompt_global_pat() {  # args: none, reads: none, sets: pat
 			echo "$pat" > "$PAT_FILE"
 		fi
 	fi
-	pat=$(<"$PAT_FILE")
+	global_pat=$(<"$PAT_FILE")
 }
 
 # Utility: get full repository URL including possible PAT from plain URL without PAT
-get_repo_pat_url() {  # args: $repo_url $use_global_pat $local_pat, reads: pat, sets: pat
+get_repo_pat_url() {  # args: $repo_url $use_global_pat $local_pat, reads: $global_pat, sets: none
 	local repo_url="$1"
 	local use_global_pat="$2"
 	local local_pat="$3"
+	local pat=""
+
+	if ! echo "$repo_url" | grep -q "github.com" && ($use_global_pat || [ -n "$local_pat" ]); then
+		echo "Warning: PAT authentication is configured, but the repository is not a GitHub repository (doesn't contain 'github.com' in the URL)."
+		return 1
+	fi
 
 	if $use_global_pat; then
 		if ! prompt_global_pat; then return 1; fi
-		# Check if PAT is empty
-		if [ -z "$pat" ]; then
+		# Check if global_pat is empty
+		if [ -z "$global_pat" ]; then
 			echo "Please provide a global GitHub PAT or reconfigure the project to use a different authentication method!"
 			return 1
 		fi
+		pat="$global_pat"
 	else
 		pat="$local_pat"
 	fi
@@ -1095,7 +1102,7 @@ update_docker_images() {
 					echo "$lastoutput"
 					return 1
 				}
-				if echo "$lastoutput" | grep -q -s "Status: Image is up to date"; then
+				if echo "$lastoutput" | grep -q "Status: Image is up to date"; then
 					endprogress "Already up to date"
 				else
 					endprogress "Updated successfully"
