@@ -1,12 +1,10 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.11                                                   #
+# JeredMgr 1.0.12                                                   #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
-
-#test
 
 # Configuration
 PROJECTS_DIR="./projects"           # projects directory, folder where all .env files live
