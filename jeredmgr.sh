@@ -426,9 +426,17 @@ prompt_yes_no() {  # args: $prompt, reads: none, sets: none
 		local yn
 		read -n 1 -p "$prompt (y/n): " yn
 		case $yn in
-			[Yy]*) return 0;;
-			[Nn]*) return 1;;
-			*) echo "Please answer y or n.";;
+			[Yy]*)
+				echo ""
+				return 0
+				;;
+			[Nn]*)
+				echo ""
+				return 1
+				;;
+			*)
+				echo " - Please answer y or n."
+				;;
 		esac
 	done
 }
@@ -515,7 +523,7 @@ for_each_project() {  # args: $project_name $action, reads: none, sets: none
 			if [ "$action" != "list" ]; then
 				echo "###   ${action^^} PROJECT:  $project_name   ###"
 			fi
-			${action}_project "$env_file" "$project_name" || all_success=false
+			${action}_project "$project_name" || all_success=false
 		else
 			echo "Project '$project_name' not found."
 		fi
@@ -535,7 +543,7 @@ for_each_project() {  # args: $project_name $action, reads: none, sets: none
 				all_success=false
 				continue
 			fi
-			${action}_project "$env_file" "$project_name" || all_success=false
+			${action}_project "$project_name" || all_success=false
 		done
 	fi
 	if ! $all_success; then return 1; fi
@@ -572,7 +580,7 @@ add_project() {  # args: none, reads: none, sets: $project_name $env_file $owner
 		read -p "Project-specific GitHub PAT (leave blank to use no PAT): " local_pat
 	fi
 	read -p "Project path: " path
-	read -p "Project type (docker/docker_compose/service): " type
+	read -p "Project type (docker/service/scripts): " type
 
 	repo_url="https://github.com/${owner}/${repo}.git"
 
@@ -626,7 +634,8 @@ run_install() {  # args: none, reads: $repo_url $use_global_pat $local_pat $path
 		repo_pat_url=$(get_repo_pat_url "$repo_url" "$use_global_pat" "$local_pat") || { echo "Could not get repository PAT URL." 1>&2; return 1; }
 		echo "Cloning $repo_url $([ "$repo_url" != "$repo_pat_url" ] && echo "using PAT") into $path ..."
 		git clone "$repo_pat_url" "$path" || { echo "Clone failed. Check credentials and repository access." 1>&2; return 1; }
-		did_clone=true
+	else
+		mkdir -p "$path"
 	fi
 
 	did_run_setup=false
@@ -657,7 +666,7 @@ run_install() {  # args: none, reads: $repo_url $use_global_pat $local_pat $path
 				echo "A service file already exists at $service_link, cannot install $project_name." 1>&2
 				return 1
 			fi
-			if ! [ -L "$service_link" ]; then
+			if [ ! -L "$service_link" ]; then
 				ln -sf "$service_file" "$service_link" || { echo "Failed to link service file $service_link to $service_file" 1>&2; return 1; }
 				echo "Linked service file $service_link to $service_file"
 			else
