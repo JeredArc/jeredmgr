@@ -50,7 +50,7 @@ It's as simple as that!
 # List all projects
 ./jeredmgr.sh list
 
-# Enable a project
+# Enable and install or re-install a project
 ./jeredmgr.sh enable <project>
 
 # Start a project
@@ -80,7 +80,7 @@ Projects are simply and solely stored using an `.env` file for each project in t
 
 In the `projects` directory, there are additionally stored:
 - an obligatory `<project-name>.docker-compose.yml` file or link for enabled type `docker` projects, which will be used for all `docker compose` commands
-- an obligatory `<project-name>.service` file or link for enabled type `service` projects, where a link in /etc/systemd/system/ will point to
+- an obligatory `<project-name>.service` file or link for enabled type `service` projects, to which a link in `/etc/systemd/system/` will point to
 
 The global GitHub PAT is stored in `global-pat.txt` and can be modified there.
 
