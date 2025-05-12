@@ -1,5 +1,12 @@
 #!/bin/bash
 
+####################################################################
+# JeredMgr 1.0.0                                                   #
+# A tool that helps you install, run, and update multiple projects #
+# using Docker containers, systemd services, or custom scripts.    #
+####################################################################
+
+
 # Configuration
 PROJECTS_DIR="./projects"           # projects directory, folder where all .env files live
 SELFUPDATE_URL="https://raw.githubusercontent.com/JeredArc/jeredmgr/main/jeredmgr.sh"   # URL to the manager.sh file (must be publicly accessible)
@@ -156,7 +163,7 @@ check_git_upstream() {  # args: $path, reads: none, sets: none
 prompt_global_pat() {  # args: none, reads: none, sets: pat
 	if [ ! -f "$PAT_FILE" ] || [ ! -s "$PAT_FILE" ]; then
 		if $option_quiet; then
-			echo "Please run once without -q to provide a global GitHub PAT."
+			echo "Please run once without -q to provide a global GitHub PAT." 1>&2
 			return 1
 		else
 			read -p "Enter your global GitHub PAT: " pat
@@ -174,7 +181,7 @@ get_repo_pat_url() {  # args: $repo_url $use_global_pat $local_pat, reads: $glob
 	local pat=""
 
 	if ! echo "$repo_url" | grep -q "github.com" && ($use_global_pat || [ -n "$local_pat" ]); then
-		echo "Warning: PAT authentication is configured, but the repository is not a GitHub repository (doesn't contain 'github.com' in the URL)."
+		echo "Warning: PAT authentication is configured, but the repository is not a GitHub repository (doesn't contain 'github.com' in the URL)." 1>&2
 		return 1
 	fi
 
@@ -182,16 +189,17 @@ get_repo_pat_url() {  # args: $repo_url $use_global_pat $local_pat, reads: $glob
 		if ! prompt_global_pat; then return 1; fi
 		# Check if global_pat is empty
 		if [ -z "$global_pat" ]; then
-			echo "Please provide a global GitHub PAT or reconfigure the project to use a different authentication method!"
+			echo "Please provide a global GitHub PAT or reconfigure the project to use a different authentication method!" 1>&2
 			return 1
 		fi
 		pat="$global_pat"
 	else
 		pat="$local_pat"
 	fi
+
 	if [ -n "$pat" ]; then
 		# Insert PAT into repository URL
-		repo_url="${repo_url/github.com/${pat}@github.com}"
+		echo "${repo_url/github.com/${pat}@github.com}"
 	else
 		# No global PAT, local PAT is empty, assume either public repo or git-globally configured authentication
 		echo "$repo_url"
@@ -220,7 +228,7 @@ load_project_values() {  # args: $project_name, reads: none, sets: $project_name
 	project_name="$1"
 	env_file="$PROJECTS_DIR/$project_name.env"
 	if [ ! -f "$env_file" ]; then
-		echo "Project '$project_name' not found."
+		echo "Project '$project_name' not found." 1>&2
 		exit 1
 	fi
 
@@ -668,9 +676,9 @@ run_install() {  # args: none, reads: $repo_url $use_global_pat $local_pat $path
 enable_project() {  # args: $project_name, reads: $env_file, sets: none
 	load_project_values "$1"
 	if ! run_install; then
-		echo "Install failed, ${enabled/true/disabling project}${enabled/false/project remains disabled}."
+		echo "Install failed, ${enabled/true/disabling project}${enabled/false/project remains disabled}." 1>&2
 		write_env_value "ENABLED" "false"
-		return
+		return 1
 	fi
 	write_env_value "ENABLED" "true"
 	echo "Successfully enabled project '$project_name'."
