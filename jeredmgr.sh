@@ -10,7 +10,7 @@
 # Configuration
 PROJECTS_DIR="./projects"           # projects directory, folder where all .env files live
 SELFUPDATE_URL="https://raw.githubusercontent.com/JeredArc/jeredmgr/main/jeredmgr.sh"   # URL to the manager.sh file (must be publicly accessible)
-PAT_FILE="./global-pat.txt"         # file where the global GitHub PAT is stored
+GLOBAL_PAT_FILE="./global-pat.txt"  # file where the global GitHub PAT is stored
 LOG_LINES=10                        # how many log lines to show with log by default when showing logs for all projects
 DEFAULT_DOCKER_IMAGE="node:22-alpine3.20"
 STATUS_CHECK_RETRIES=10             # how many times to retry checking status (100ms wait) after starting or stopping a project
@@ -162,18 +162,18 @@ check_git_upstream() {  # args: $path, reads: none, sets: none
 }	
 
 
-# Utility: prompt user for global GitHub PAT and store it in $PAT_FILE
+# Utility: prompt user for global GitHub PAT and store it in $GLOBAL_PAT_FILE
 prompt_global_pat() {  # args: none, reads: none, sets: pat
-	if [ ! -f "$PAT_FILE" ] || [ ! -s "$PAT_FILE" ]; then
+	if [ ! -f "$GLOBAL_PAT_FILE" ] || [ ! -s "$GLOBAL_PAT_FILE" ]; then
 		if $option_quiet; then
 			echo "Please run once without -q to provide a global GitHub PAT." 1>&2
 			return 1
 		else
 			read -p "Enter your global GitHub PAT: " pat
-			echo "$pat" > "$PAT_FILE"
+			echo "$pat" > "$GLOBAL_PAT_FILE"
 		fi
 	fi
-	global_pat=$(<"$PAT_FILE")
+	global_pat=$(<"$GLOBAL_PAT_FILE")
 }
 
 # Utility: get full repository URL including possible PAT from plain URL without PAT
@@ -226,6 +226,15 @@ write_env_value() {  # args: $key $value, reads: $env_file, sets: none
 		|| echo "${key}=${value}" >> "$env_file"
 }
 
+# Utility: check project type
+check_project_type() {  # args: none, reads: $type, sets: $type_checked
+	# Check if type is one of the supported values
+	type_checked=false  # certain to be boolean
+	if [ "$type" = "docker" ] || [ "$type" = "service" ] || [ "$type" = "scripts" ]; then
+		type_checked=true
+	fi	
+}
+
 # Utility: load project values
 load_project_values() {  # args: $project_name, reads: none, sets: $project_name $env_file $enabled $repo_url $path $use_global_pat $local_pat $type $type_checked
 	project_name="$1"
@@ -248,11 +257,7 @@ load_project_values() {  # args: $project_name, reads: none, sets: $project_name
 	path=$(read_env_value "PATH")
 	type=$(read_env_value "TYPE")
 
-	# Check if type is one of the supported values
-	type_checked=false  # certain to be boolean
-	if [ "$type" = "docker" ] || [ "$type" = "service" ] || [ "$type" = "scripts" ]; then
-		type_checked=true
-	fi
+	check_project_type
 
 	# Check if docker is installed
 	if [ "$type" = "docker" ]; then
@@ -323,7 +328,7 @@ select_compose_file() {  # args: none, reads: $project_name $path, sets: $compos
 		if ! $option_quiet && prompt_yes_no "No compose file or Dockerfile found. Generate a Dockerfile in $path?"; then
 			local dockerfile="$path/Dockerfile"
 			echo "┌── GENERATING FILE: $dockerfile ───"
-			local dockerfile_content=""
+			local dockerfile_fullcontent=""
 			dockerfile_content+="FROM $DEFAULT_DOCKER_IMAGE\n"
 			dockerfile_content+="WORKDIR /usr/src/app\n"
 			dockerfile_content+="RUN corepack enable\n"
@@ -338,7 +343,7 @@ select_compose_file() {  # args: none, reads: $project_name $path, sets: $compos
 				dockerfile_content+="RUN npm init -y\n"
 				dockerfile_content+="RUN npm install\n"
 			fi
-			echo -e "$dockerfile_content" > "$dockerfile"  # write to file
+			dockerfile_fullcontent+="$dockerfile_content"
 			echo -e "$dockerfile_content" | sed 's/^/│ /'
 			dockerfile_content=""
 			read -p "> Entrypoint (e.g. $suggested_entrypoint): " entrypoint
@@ -358,20 +363,25 @@ select_compose_file() {  # args: none, reads: $project_name $path, sets: $compos
 			if [ -z "$envvar" ]; then
 				dockerfile_content+="# ENV NODE_ENV=production\n"
 			fi
-			echo -e "$dockerfile_content" >> "$dockerfile"  # append to file
+			dockerfile_fullcontent+="$dockerfile_content"
 			echo -e "$dockerfile_content"
-			echo "└─── $dockerfile ────────────────────"
-			if prompt_yes_no "Do you want to edit the Dockerfile?"; then
+			echo "└─────────────────────────$(printf '─%.0s' $(seq 1 ${#dockerfile}))"
+			if prompt_yes_no "Do you want to edit the Dockerfile?"; then  # ask first, so user can Ctrl-C out
+				echo -e "$dockerfile_fullcontent" > "$dockerfile"  # write to file
 				${EDITOR:-vi} "$dockerfile"
+			else
+				echo -e "$dockerfile_fullcontent" > "$dockerfile"  # write to file
 			fi
 			# Now generate compose file
 			echo "┌── GENERATING FILE: $compose_file ───"
 			local compose_content=$(generate_compose_file_content)
-			echo -e "$compose_content" > "$compose_file"  # write to file
 			echo -e "$compose_content" | sed 's/^/│ /'
-			echo "└─── $compose_file ───────────────────"
-			if prompt_yes_no "Do you want to edit the docker compose file?"; then
+			echo "└─────────────────────────$(printf '─%.0s' $(seq 1 ${#compose_file}))"
+			if prompt_yes_no "Do you want to edit the docker compose file?"; then  # ask first, so user can Ctrl-C out
+				echo -e "$compose_content" > "$compose_file"  # write to file
 				${EDITOR:-vi} "$compose_file"
+			else
+				echo -e "$compose_content" > "$compose_file"  # write to file
 			fi
 			echo "Using generated compose file: $compose_file"
 		else
@@ -599,13 +609,17 @@ for_each_project() {  # args: $project_name $action, reads: none, sets: none
 ################################################################################
 
 # Command: Add a new project by prompting the user and creating a .env file.
-add_project() {  # args: none, reads: none, sets: $project_name $env_file $owner $repo $use_global_pat $local_pat $path $type $repo_url $repo_pat_url
+add_project() {  # args: $project_name, reads: none, sets: $project_name $env_file $owner $repo $use_global_pat $local_pat $path $type $repo_url $repo_pat_url
+	local project_name="$1"
+
 	if $option_quiet; then
 		echo "Command 'add' cannot be called with --quiet." 1>&2
 		return 1
 	fi
 
-	read -p "Project name: " project_name
+	if [ -z "$project_name" ]; then
+		read -p "Project name: " project_name
+	fi
 	# Validate project name format
 	if ! [[ "$project_name" =~ ^[a-z_][a-z_0-9]*$ ]]; then
 		echo "Error: Project name must start with a lowercase letter or underscore and contain only lowercase letters, numbers, and underscores." 1>&2
@@ -618,14 +632,27 @@ add_project() {  # args: none, reads: none, sets: $project_name $env_file $owner
 	fi
 
 	read -p "GitHub owner: " owner
-	read -p "GitHub repository name: " repo
+	read -p "GitHub repository name (default: $project_name): " repo
+	if [ -z "$repo" ]; then
+		repo=$project_name
+	fi
 	prompt_yes_no "Use global GitHub PAT?" && use_global_pat=true || use_global_pat=false
 	local_pat=""
 	if ! $use_global_pat; then
 		read -p "Project-specific GitHub PAT (leave blank to use no PAT): " local_pat
 	fi
-	read -p "Project path: " path
-	read -p "Project type (docker/service/scripts): " type
+	local default_path="$original_dir"
+	if ! [[ "$original_dir" == *"/$project_name" ]]; then default_path+="/$project_name"; fi
+	read -p "Project path (default: $default_path): " path
+	if [ -z "$path" ]; then
+		path="$default_path"
+	fi
+	type_checked=false
+	type=""
+	while ! $type_checked; do
+		read -p "$([ -n "$type" ] && echo "Invalid type '$type', try again" || echo "Project type") (docker/service/scripts): " type
+		check_project_type
+	done
 
 	repo_url="https://github.com/${owner}/${repo}.git"
 
@@ -1262,6 +1289,10 @@ self_update() {  # args: none, reads: none, sets: none
 ################################################################################
 
 original_args=("$@")
+original_dir=$(pwd)
+cd "$(dirname $(readlink -f "$0"))"
+PROJECTS_DIR=$(readlink -f "$PROJECTS_DIR")
+GLOBAL_PAT_FILE=$(readlink -f "$GLOBAL_PAT_FILE")
 
 command=""
 project_name=""
@@ -1334,10 +1365,10 @@ ensure_git_installed
 
 case $command in
 	add)
-		add_project || exit_code=$?
+		add_project "$project_name" || exit_code=$?
 		;;
 	remove)
-		remove_project || exit_code=$?
+		remove_project "$project_name" || exit_code=$?
 		;;
 	list)
 		for_each_project "$project_name" "$command" || exit_code=$?
