@@ -133,10 +133,9 @@ ensure_git_installed() {  # args: none, reads: none, sets: none
 # Utility: return whether git is available in supplied path
 check_git_path() {  # args: $path, reads: none, sets: none
 	local path="$1"
-	if ! $(git -C "$path" rev-parse --is-inside-work-tree >/dev/null 2>&1); then
+	if ! git -C "$path" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 		return 1
 	fi
-	return 0
 }
 
 # Utility: check whether upstream commit equals local commit without fetching
@@ -145,7 +144,11 @@ check_git_upstream() {  # args: $path, reads: none, sets: none
 	local upstream_ref=$(git -C "$path" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null) || { echo "No upstream configured" 1>&2; return 1; }
 	local remote_name=$(echo "$upstream_ref" | cut -d'/' -f1)
 	local remote_branch=$(echo "$upstream_ref" | cut -d'/' -f2-)
-	local upstream_commit=$(git -C "$path" ls-remote --refs -q "$remote_name" "refs/heads/$remote_branch" | awk '{print $1}')
+	local upstream_commit=$(git -C "$path" ls-remote --refs -q "$remote_name" "refs/heads/$remote_branch" 2>/dev/null) || {
+		echo "Failed to get upstream commit" 1>&2
+		return 1
+	}
+	upstream_commit=$(echo "$upstream_commit" | awk '{print $1}')
 	if [ -z "$upstream_commit" ]; then
 		echo "No upstream commit found" 1>&2
 		return 1
@@ -1062,18 +1065,25 @@ logs_project() {  # args: $project_name, reads: $type $path $project_name $all_p
 # Command: Update the git repository for a project.
 update_git_repo() {
 	if ! check_git_path "$path"; then
-		echo "Path is not a git repository! Skipping git repository update."
+		echo "Path is not a git repository, skipping git repository update."
 		return
 	fi
 	repo_pat_url=$(get_repo_pat_url "$repo_url" "$use_global_pat" "$local_pat")
 	echo "Fetching updates ..."
-	git -C "$path" fetch --quiet
+	git -C "$path" fetch --quiet || { echo "Failed to fetch upstream" 1>&2; return 1; }
 	local previous_hash=$(git -C "$path" rev-parse --short HEAD 2>/dev/null)
 	local local_branch=$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null)
 	local upstream_ref=$(git -C "$path" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null) || { echo "No upstream configured" 1>&2; return 1; }
 	local remote_name=$(echo "$upstream_ref" | cut -d'/' -f1)
 	local remote_branch=$(echo "$upstream_ref" | cut -d'/' -f2-)
-	local behind=$(git -C "$path" rev-list --count "$local_branch..$upstream_ref" 2>/dev/null)
+	local behind=$(git -C "$path" rev-list --count "$local_branch..$upstream_ref" 2>/dev/null) || {
+		echo "Failed to get commit count" 1>&2
+		return 1
+	}
+	if ! [[ "$behind" =~ ^[0-9]+$ ]]; then
+		echo "Invalid commit count" 1>&2
+		return 1
+	fi
 	if [ "$behind" -eq 0 ]; then
 		echo "Git repository is up to date"
 	else
@@ -1095,7 +1105,11 @@ dangling_docker_hashes=""
 update_docker_images() {
 	if [ $type = "docker" ] && check_compose_file; then
 		# pull images separately to track whether something was updated instead of `docker compose pull`
-		local images=$(docker compose -f "$compose_file" --project-directory "$path" config | grep -E '^[ \t]+image: ' | awk '{ sub(/^[ \t]+image: +/, ""); sub(/[ \t].*$/, ""); print }')
+		local config_output=$(docker compose -f "$compose_file" --project-directory "$path" config 2>/dev/null) || {
+			echo "Failed to get docker compose config" 1>&2
+			return 1
+		}
+		local images=$(echo "$config_output" | grep -E '^[ \t]+image: ' | awk '{ sub(/^[ \t]+image: +/, ""); sub(/[ \t].*$/, ""); print }')
 		if [ -z "$images" ]; then
 			echo "No images to possibly update found in docker compose file."
 		else
@@ -1103,7 +1117,8 @@ update_docker_images() {
 			local updated=0
 			local new_dangling=""
 			local new_dangling_hashes=""
-			for image in "${images[@]}"; do
+			while IFS= read -r image; do
+				[ -n "$image" ] || continue
 				startprogress "  - ${image}:"
 				showprogress docker image pull "$image" || {
 					endprogress "Update failed with exit code $?!"
@@ -1118,7 +1133,7 @@ update_docker_images() {
 				fi
 				new_dangling+="$(docker images --format "  - {{.Repository}}:{{.Tag}} {{.ID}}" --filter "dangling=true" --filter "reference=${image%:*}")"$'\n'
 				new_dangling_hashes+="$(docker images --format "{{.ID}}" --filter "dangling=true" --filter "reference=${image%:*}") "
-			done
+			done <<< "$images"
 			if [ -n "$new_dangling_hashes" ]; then
 				echo "Obsolete (dangling) images will be listed at the end of the update(s)."
 				dangling_docker_images+="# $project_name:\n$new_dangling"
@@ -1135,9 +1150,8 @@ update_docker_images() {
 
 # Command: Update a project by pulling from git, running install/setup, and restarting if successful.
 update_project() {  # args: $project_name, reads: $path $repo_url $use_global_pat $local_pat $project_name, sets: none
-	local running_status=$(get_running_status)
-
 	load_project_values "$1"
+
 	if [ -f "$path/update.sh" ]; then
 		run_script "update.sh" || return 1;
 	else
@@ -1152,7 +1166,7 @@ update_project() {  # args: $project_name, reads: $path $repo_url $use_global_pa
 
 	echo ""
 	echo "Update complete."
-	if [ "$running_status" = "Yes" ]; then
+	if [ "$(get_running_status)" = "Yes" ]; then
 		echo "Restarting project after update ..."
 		restart_project "$project_name" || return 1
 	else
