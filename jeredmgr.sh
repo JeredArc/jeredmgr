@@ -240,12 +240,12 @@ load_project_values() {  # args: $project_name, reads: none, sets: $project_name
 		enabled=false
 	fi
 	repo_url=$(read_env_value "REPO_URL")
-	path=$(read_env_value "PATH")
 	use_global_pat=$(read_env_value "USE_GLOBAL_PAT")
 	if ! $use_global_pat; then  # force to boolean
 		use_global_pat=false
 	fi
 	local_pat=$(read_env_value "LOCAL_PAT")
+	path=$(read_env_value "PATH")
 	type=$(read_env_value "TYPE")
 
 	# Check if type is one of the supported values
@@ -587,9 +587,10 @@ add_project() {  # args: none, reads: none, sets: $project_name $env_file $owner
 	{
 		echo "ENABLED=false"
 		echo "REPO_URL=$repo_url"
-		echo "PATH=$path"
 		echo "USE_GLOBAL_PAT=$use_global_pat"
 		echo "LOCAL_PAT=$local_pat"
+		echo "PATH=$path"
+		echo "TYPE=$type"
 	} > "$env_file"
 
 	echo "Successfully added project '$project_name'."
