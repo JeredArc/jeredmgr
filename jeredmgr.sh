@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.0                                                   #
+# JeredMgr 1.0.1                                                   #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -618,7 +618,7 @@ remove_project() {  # args: $project_name, reads: $env_file $project_name $enabl
 # Command: List a single project with its enabled status and path.
 list_project() {  # args: $project_name, reads: $enabled $project_name $path, sets: none
 	load_project_values "$1"
-	echo "${enabled/true/✓}${enabled/false/✗} $project_name: $path"
+	echo "$($enabled && echo "✓" || echo "✗") $project_name: $path"
 }
 
 # Utility: Run setup.sh if present and perform type-specific install/setup logic for the project.
@@ -688,7 +688,7 @@ run_install() {  # args: none, reads: $repo_url $use_global_pat $local_pat $path
 enable_project() {  # args: $project_name, reads: $env_file, sets: none
 	load_project_values "$1"
 	if ! run_install; then
-		echo "Install failed, ${enabled/true/disabling project}${enabled/false/project remains disabled}." 1>&2
+		echo "Install failed, $($enabled && echo "disabling project" || echo "project remains disabled")" 1>&2
 		write_env_value "ENABLED" "false"
 		return 1
 	fi
@@ -971,7 +971,7 @@ restart_project() {  # args: $project_name, reads: $enabled $type $path $project
 # Command: Show the status of a project, including enabled/running state and git status.
 status_project() {  # args: $project_name, reads: $enabled $type $path $project_name $repo_url $use_global_pat $local_pat $all_projects, sets: none
 	load_project_values "$1"
-	echo "Enabled: ${enabled/true/✓}${enabled/false/✗}"
+	echo "Enabled: $($enabled && echo "✓" || echo "✗")"
 	if ! $type_checked; then
 		echo "Unknown or unsupported type '$type', skipping status."
 		return 1
