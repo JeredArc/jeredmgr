@@ -998,7 +998,7 @@ status_project() {  # args: $project_name, reads: $enabled $type $path $project_
 	echo "Repository: $repo_url"
 	if $use_global_pat; then
 		echo "Authentication: Using global PAT"
-	else if [ -n "$local_pat" ]; then
+	elif [ -n "$local_pat" ]; then
 		echo "Authentication: Using project-specific PAT"
 	else
 		echo "Authentication: Public repository or globally configured"
