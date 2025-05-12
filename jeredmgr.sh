@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.13                                                   #
+# JeredMgr 1.0.14                                                   #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -13,6 +13,7 @@ GLOBAL_PAT_FILE="./global-pat.txt"  # file where the global GitHub PAT is stored
 LOG_LINES=10                        # how many log lines to show with log by default when showing logs for all projects
 DEFAULT_DOCKER_IMAGE="node:22-alpine3.20"
 STATUS_CHECK_RETRIES=10             # how many times to retry checking status (100ms wait) after starting or stopping a project
+VERSION=$(grep -E "^# JeredMgr [0-9]+\.[0-9]+\.[0-9]+" $0 | sed -E 's/^# JeredMgr ([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
 
 # Utility: List available commands and their descriptions.
 list_commands() {  # args: none, reads: none, sets: none
@@ -42,7 +43,7 @@ list_commands() {  # args: none, reads: none, sets: none
 
 # Command: Print detailed help and workflow information for JeredMgr.
 show_help() {  # args: none, reads: none, sets: none
-	echo "Welcome to JeredMgr, a tool that helps you install, run, and update multiple projects"
+	echo "Welcome to JeredMgr $VERSION, a tool that helps you install, run, and update multiple projects"
 	echo "using Docker containers, systemd services, or custom scripts!"
 	echo ""
 	list_commands
@@ -1258,7 +1259,7 @@ update_project() {  # args: $project_name, reads: $path $repo_url $use_global_pa
 # Command: Update the manager script itself from the remote repository.
 self_update() {  # args: none, reads: none, sets: none
 	if $option_internal_recursive; then
-		echo "Successfully updated $0."
+		echo "Successfully updated $0 to $VERSION."
 		return
 	fi
 	local tmp_file=$(mktemp)
@@ -1274,7 +1275,7 @@ self_update() {  # args: none, reads: none, sets: none
 		echo "Manager script is already up to date."
 		rm -f "$tmp_file" 2>/dev/null
 	else
-		echo "Updating manager script ..."
+		echo "Updating manager script from $VERSION ..."
 		mv -f "$tmp_file" "$0"
 		chmod +x "$0"
 		echo "Restarting ..."
@@ -1353,7 +1354,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$command" ]; then
-	echo "Welcome to JeredMgr!"
+	echo "Welcome to JeredMgr $VERSION!"
 	list_commands
 	exit 1
 fi
