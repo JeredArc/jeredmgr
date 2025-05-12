@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.14                                                   #
+# JeredMgr 1.0.15                                                   #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -40,7 +40,7 @@ list_commands() {  # args: none, reads: none, sets: none
 	echo "   -s, --no-status-check       Don't retry checking status after starting or stopping a project"
 	echo "   -n, --number-of-lines <N>   Show N log lines or use 'f' (follow) for 'logs' command (default: follow / for all projects $LOG_LINES)"
 }
-
+#test
 # Command: Print detailed help and workflow information for JeredMgr.
 show_help() {  # args: none, reads: none, sets: none
 	echo "Welcome to JeredMgr $VERSION, a tool that helps you install, run, and update multiple projects"
