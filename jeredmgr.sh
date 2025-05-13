@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.20                                                  #
+# JeredMgr 1.0.21                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -1407,8 +1407,8 @@ case $command in
 		for_each_project "$project_name" "$command" || exit_code=$?
 		;;
 	update)
-		if $all_projects && ! $option_internal_recursive; then
-			echo "###   SELF-UPDATE   ###"
+		if $all_projects; then
+			! $option_internal_recursive && echo "###   SELF-UPDATE   ###"
 			self_update || exit_code=$?
 			echo ""
 		fi
