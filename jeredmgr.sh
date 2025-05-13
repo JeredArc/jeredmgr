@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.21                                                  #
+# JeredMgr 1.0.22                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -336,11 +336,10 @@ select_compose_file() {  # args: none, reads: $project_name $path, sets: $compos
 			suggested_entrypoint="node index.js"
 			if [ -f "$path/yarn.lock" ] || grep -q -s "packageManager: 'yarn" "$path/package.json"; then
 				suggested_entrypoint="yarn start"
-				dockerfile_content+="RUN yarn init -2\n"
+				dockerfile_content+="RUN yarn set version stable\n"
 				dockerfile_content+="RUN yarn install\n"
 			elif [ -f "$path/package.json" ]; then
 				suggested_entrypoint="npm start"
-				dockerfile_content+="RUN npm init -y\n"
 				dockerfile_content+="RUN npm install\n"
 			fi
 			dockerfile_fullcontent+="$dockerfile_content"
