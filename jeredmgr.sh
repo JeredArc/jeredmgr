@@ -1,14 +1,14 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.16                                                   #
+# JeredMgr 1.0.17                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
 
 # Configuration
 PROJECTS_DIR="./projects"           # projects directory, folder where all .env files live
-SELFUPDATE_URL="https://raw.githubusercontent.com/JeredArc/jeredmgr/main/jeredmgr.sh"   # URL to the manager.sh file (must be publicly accessible)
+SELFUPDATE_REPO_URL="https://github.com/JeredArc/jeredmgr.git"   # JeredMgr repository URL
 GLOBAL_PAT_FILE="./global-pat.txt"  # file where the global GitHub PAT is stored
 LOG_LINES=10                        # how many log lines to show with log by default when showing logs for all projects
 DEFAULT_DOCKER_IMAGE="node:22-alpine3.20"
@@ -1144,8 +1144,11 @@ logs_project() {  # args: $project_name, reads: $type $path $project_name $all_p
 	esac
 }
 
+is_manager_updating=false
+did_update=false
 # Command: Update the git repository for a project.
-update_git_repo() {
+update_git_repo() {  # args: none, reads: $path $repo_url $use_global_pat $local_pat, sets: none
+	did_update=false
 	if ! check_git_path "$path"; then
 		echo "Path is not a git repository, skipping git repository update."
 		return
@@ -1167,9 +1170,9 @@ update_git_repo() {
 		return 1
 	fi
 	if [ "$behind" -eq 0 ]; then
-		echo "Git repository is up to date"
+		echo "$($is_manager_updating && echo "JeredMgr" || "Git repository") is up to date $($is_manager_updating && echo "($VERSION)")"
 	else
-		echo "Updating git repository ($behind commits behind) ..."
+		echo "Updating $($is_manager_updating && echo "JeredMgr from $VERSION" || "git repository") ($behind commits behind) ..."
 		startprogress ""
 		showprogress git -C "$path" pull "$repo_pat_url" || {
 			endprogress "Update failed with exit code $?!"
@@ -1177,7 +1180,12 @@ update_git_repo() {
 			return 1
 		}
 		local current_hash=$(git -C "$path" rev-parse --short HEAD 2>/dev/null)
-		endprogress "Successfully updated git repository from $previous_hash to $current_hash"
+		if $is_manager_updating; then
+			endprogress "Update complete from $previous_hash to $current_hash"
+		else
+			endprogress "Successfully updated git repository from $previous_hash to $current_hash"
+		fi
+		did_update=true
 	fi
 }
 
@@ -1259,26 +1267,20 @@ update_project() {  # args: $project_name, reads: $path $repo_url $use_global_pa
 # Command: Update the manager script itself from the remote repository.
 self_update() {  # args: none, reads: none, sets: none
 	if $option_internal_recursive; then
-		echo "Successfully updated $0 to $VERSION."
+		echo "Successfully updated JeredMgr to $VERSION."
 		return
 	fi
-	local tmp_file=$(mktemp)
-	echo "Checking for script updates ..."
-	curl -s -o "$tmp_file" "$SELFUPDATE_URL"
-	if [ $? -ne 0 ]; then
-		echo "Failed to download updated manager script."
-		rm -f "$tmp_file" 2>/dev/null
-		return 1
-	fi
+	path=$(dirname "$0")
+	repo_url="$SELFUPDATE_REPO_URL"
+	use_global_pat=false
+	local_pat=""
+	is_manager_updating=true
+	update_git_repo || { echo "Failed to update JeredMgr." 1>&2; return 1; }
+	is_manager_updating=false
 
-	if cmp -s "$tmp_file" "$0"; then
-		echo "Manager script is already up to date with $VERSION."
-		rm -f "$tmp_file" 2>/dev/null
-	else
-		echo "Updating manager script from $VERSION ..."
-		mv -f "$tmp_file" "$0"
+	if $did_update; then
 		chmod +x "$0"
-		echo "Restarting ..."
+		echo "Restarting JeredMgr ..."
 		"$0" "${original_args[@]}" --internal-recursive
 		exit $?
 	fi

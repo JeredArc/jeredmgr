@@ -33,7 +33,7 @@ JeredMgr is a tool that helps you install, run, and update multiple projects usi
 ## Installation
 
 ```bash
-curl -O https://raw.githubusercontent.com/JeredArc/jeredmgr/main/jeredmgr.sh && chmod +x jeredmgr.sh
+git clone https://github.com/JeredArc/jeredmgr.git && chmod +x jeredmgr.sh
 ```
 It's as simple as that!
 
