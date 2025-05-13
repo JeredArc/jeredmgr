@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.18                                                  #
+# JeredMgr 1.0.19                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -1170,9 +1170,9 @@ update_git_repo() {  # args: none, reads: $path $repo_url $use_global_pat $local
 		return 1
 	fi
 	if [ "$behind" -eq 0 ]; then
-		echo "$($is_manager_updating && echo "JeredMgr" || "Git repository") is up to date $($is_manager_updating && echo "($VERSION)")"
+		echo "$($is_manager_updating && echo "JeredMgr" || echo "Git repository") is up to date $($is_manager_updating && echo "($VERSION)")"
 	else
-		echo "Updating $($is_manager_updating && echo "JeredMgr from $VERSION" || "git repository") ($behind commits behind) ..."
+		echo "Updating $($is_manager_updating && echo "JeredMgr from $VERSION" || echo "git repository") ($behind commits behind) ..."
 		startprogress ""
 		showprogress git -C "$path" pull "$repo_pat_url" || {
 			endprogress "Update failed with exit code $?!"
