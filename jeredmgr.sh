@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.19                                                  #
+# JeredMgr 1.0.20                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -512,7 +512,7 @@ lasttitle=""
 # Utility: Start a pass-through progress indicator
 startprogress() {   # args: $title, reads: none, sets: $lasttitle
 	lasttitle=$1
-	echo "$1"
+	echo "$lasttitle"
 }
 lastoutput=""
 # Utility: Pass-through the current line of output from a command
@@ -542,7 +542,11 @@ showprogress() {   # args: $command $args..., reads: none, sets: $lastoutput
 # Utility: End a pass-through progress indicator
 endprogress() {   # args: $statustext, reads: none, sets: $lasttitle
 	printf "\e[A"  # cursor up
-	echo "$lasttitle" "$1"
+	if [ -n "$lasttitle" ]; then
+		echo "$lasttitle" "$1"
+	else
+		echo "$1"
+	fi
 	lasttitle=""
 }
 
