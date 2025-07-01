@@ -337,7 +337,7 @@ load_project_values() {  # args: $project_name, reads: none, sets: $project_name
 	project_name="$1"
 	env_file="$PROJECTS_DIR/$project_name.env"
 	if [ ! -f "$env_file" ]; then
-		format_error "Project '$(format_project "$project_name")' not found."
+		format_error "Project $(format_project "$project_name") not found."
 		exit 1
 	fi
 
@@ -367,7 +367,7 @@ load_project_values() {  # args: $project_name, reads: none, sets: $project_name
 	# Check if docker is installed
 	if [ "$type" = "docker" ]; then
 		if ! command -v docker >/dev/null 2>&1; then
-			format_error "Error: docker is not installed or not in PATH (needed for docker type project '$(format_project "$project_name")')."
+			format_error "Error: docker is not installed or not in PATH (needed for docker type project $(format_project "$project_name"))."
 			return 1
 		fi
 	fi
@@ -776,7 +776,7 @@ add_project() {  # args: $project_name, reads: none, sets: $project_name $env_fi
 		echo "TYPE=$type"
 	} > "$env_file"
 
-	format_success "Successfully added project '$(format_project "$project_name")'."
+	format_success "Successfully added project $(format_project "$project_name")."
 	echo -e "You can now enable and install it with \`${BOLD}$0 enable $project_name${RESET}\`."
 }
 
@@ -784,10 +784,10 @@ add_project() {  # args: $project_name, reads: none, sets: $project_name $env_fi
 remove_project() {  # args: $project_name, reads: $env_file $project_name $enabled $gitpath $subdir $path, sets: $env_file
 	load_project_values "$1" || return 1
 	if $enabled; then
-		format_error "Project '$(format_project "$project_name")' is enabled, please disable it first."
+		format_error "Project $(format_project "$project_name") is enabled, please disable it first."
 		return 1
 	fi
-	if ! $option_force && ! prompt_yes_no "Are you sure you want to remove project '$(format_project "$project_name")'?"; then
+	if ! $option_force && ! prompt_yes_no "Are you sure you want to remove project $(format_project "$project_name")?"; then
 		echo "Cancelled."
 		return
 	fi
@@ -813,7 +813,7 @@ remove_project() {  # args: $project_name, reads: $env_file $project_name $enabl
 		fi
 	fi
 
-	format_success "Successfully removed project '$(format_project "$project_name")'."
+	format_success "Successfully removed project $(format_project "$project_name")."
 }
 
 # Command: List a single project with its enabled status and path.
@@ -938,13 +938,13 @@ enable_project() {  # args: $project_name, reads: $env_file, sets: none
 		return 1
 	fi
 	if $enabled; then
-		echo "Install was called, as project '$(format_project "$project_name")' is already enabled."
+		echo "Successfully re-installed project $(format_project "$project_name"), it was already enabled."
 	else
 		write_env_value "ENABLED" "true"
-		format_success "Successfully installed and enabled project '$(format_project "$project_name")'."
+		format_success "Successfully installed and enabled project $(format_project "$project_name")."
 	fi
 	if $enabled && [ "$(get_running_status)" = "Yes" ]; then
-		echo "Restarting project '$(format_project "$project_name")' now."
+		echo "Restarting project $(format_project "$project_name") now."
 		restart_project "$project_name" || return 1
 	else
 		echo -e "You can now start it with \`${BOLD}$0 start $project_name${RESET}\`."
@@ -988,12 +988,12 @@ disable_project() {  # args: $project_name, reads: $env_file $type $path, sets: 
 			service)
 				if ! check_service_file; then
 					if systemctl status "$project_name" > /dev/null 2>&1; then
-						format_warning "Warning: No valid project service file found, but found systemd service '$(format_project "$project_name")'! There might be another service with the same name!"
+						format_warning "Warning: No valid project service file found, but found systemd service $(format_project "$project_name")! There might be another service with the same name!"
 					else
 						format_warning "No valid service file and no systemd service found, possibly already uninstalled."
 					fi
 				else
-					echo "Stopping systemd service '$(format_project "$project_name")' ..."
+					echo "Stopping systemd service $(format_project "$project_name") ..."
 					systemctl stop "$project_name"
 					rm -f "$service_link"
 					format_success "Removed service file link '$(format_path "$service_link")'."
@@ -1011,7 +1011,7 @@ disable_project() {  # args: $project_name, reads: $env_file $type $path, sets: 
 		esac
 	fi
 	write_env_value "ENABLED" "false"
-	format_success "Successfully $($type_checked && echo "uninstalled and disabled" || echo "disabled") project '$(format_project "$project_name")'."
+	format_success "Successfully $($type_checked && echo "uninstalled and disabled" || echo "disabled") project $(format_project "$project_name")."
 }
 
 # Utility: Get the running status of a project: Yes, No, Unknown. (run in subshell, don't use format_ functions here!)
@@ -1087,7 +1087,7 @@ start_project() {  # args: $project_name, reads: $enabled $type $path $project_n
 	esac
 
 	if ! $check_status; then
-		format_success "Project started '$(format_project "$project_name")'."
+		format_success "Project started $(format_project "$project_name")."
 		return
 	fi
 
@@ -1100,15 +1100,15 @@ start_project() {  # args: $project_name, reads: $enabled $type $path $project_n
 		[ $i -gt 0 ] && sleep 0.1
 		running_status=$(get_running_status)
 		if [ "$running_status" = "Yes" ]; then
-			format_success "Successfully started project '$(format_project "$project_name")'."
+			format_success "Successfully started project $(format_project "$project_name")."
 			return
 		fi
 		((i++))
 	done
 	if [ "$running_status" = "No" ]; then
-		format_error "Failed to start project '$(format_project "$project_name")', not running after $(((i - 1) * 100))ms timeout."
+		format_error "Failed to start project $(format_project "$project_name"), not running after $(((i - 1) * 100))ms timeout."
 	else
-		format_warning "Running status unknown for project '$(format_project "$project_name")'."
+		format_warning "Running status unknown for project $(format_project "$project_name")."
 	fi
 	return 1
 }
@@ -1154,7 +1154,7 @@ stop_project() {  # args: $project_name, reads: $type $path $project_name, sets:
 	esac
 
 	if ! $check_status; then
-		format_success "Project stopped '$(format_project "$project_name")'."
+		format_success "Project stopped $(format_project "$project_name")."
 		return
 	fi
 
@@ -1167,15 +1167,15 @@ stop_project() {  # args: $project_name, reads: $type $path $project_name, sets:
 		[ $i -gt 0 ] && sleep 0.1
 		running_status=$(get_running_status)
 		if [ "$running_status" = "No" ]; then
-			format_success "Successfully stopped project '$(format_project "$project_name")'."
+			format_success "Successfully stopped project $(format_project "$project_name")."
 			return
 		fi
 		i=$((i + 1))
 	done
 	if [ "$running_status" = "Yes" ]; then
-		format_error "Failed to stop project '$(format_project "$project_name")', still running after $(((i - 1) * 100))ms timeout."
+		format_error "Failed to stop project $(format_project "$project_name"), still running after $(((i - 1) * 100))ms timeout."
 	else
-		format_warning "Running status unknown for project '$(format_project "$project_name")'."
+		format_warning "Running status unknown for project $(format_project "$project_name")."
 	fi
 	return 1
 }
