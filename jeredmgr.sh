@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.22                                                  #
+# JeredMgr 1.0.23                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -131,20 +131,20 @@ ensure_git_installed() {  # args: none, reads: none, sets: none
 }
 
 # Utility: return whether git is available in supplied path
-check_git_path() {  # args: $path, reads: none, sets: none
-	local path="$1"
-	if ! git -C "$path" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+check_git_path() {  # args: $gitdir, reads: none, sets: none
+	local gitdir="$1"
+	if ! git -C "$gitdir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 		return 1
 	fi
 }
 
 # Utility: check whether upstream commit equals local commit without fetching
 check_git_upstream() {  # args: $path, reads: none, sets: none
-	local path="$1"
-	local upstream_ref=$(git -C "$path" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null) || { echo "No upstream configured" 1>&2; return 1; }
+	local gitdir="$1"
+	local upstream_ref=$(git -C "$gitdir" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null) || { echo "No upstream configured" 1>&2; return 1; }
 	local remote_name=$(echo "$upstream_ref" | cut -d'/' -f1)
 	local remote_branch=$(echo "$upstream_ref" | cut -d'/' -f2-)
-	local upstream_commit=$(git -C "$path" ls-remote --refs -q "$remote_name" "refs/heads/$remote_branch" 2>/dev/null) || {
+	local upstream_commit=$(git -C "$gitdir" ls-remote --refs -q "$remote_name" "refs/heads/$remote_branch" 2>/dev/null) || {
 		echo "Failed to get upstream commit" 1>&2
 		return 1
 	}
@@ -153,7 +153,7 @@ check_git_upstream() {  # args: $path, reads: none, sets: none
 		echo "No upstream commit found" 1>&2
 		return 1
 	fi
-	local local_commit=$(git -C "$path" rev-parse HEAD 2>/dev/null)
+	local local_commit=$(git -C "$gitdir" rev-parse HEAD 2>/dev/null)
 	if [ "$upstream_commit" = "$local_commit" ]; then
 		return 0
 	else
@@ -236,7 +236,7 @@ check_project_type() {  # args: none, reads: $type, sets: $type_checked
 }
 
 # Utility: load project values
-load_project_values() {  # args: $project_name, reads: none, sets: $project_name $env_file $enabled $repo_url $path $use_global_pat $local_pat $type $type_checked
+load_project_values() {  # args: $project_name, reads: none, sets: $project_name $env_file $enabled $repo_url $path $gitpath $use_global_pat $local_pat $type $type_checked
 	project_name="$1"
 	env_file="$PROJECTS_DIR/$project_name.env"
 	if [ ! -f "$env_file" ]; then
@@ -249,6 +249,7 @@ load_project_values() {  # args: $project_name, reads: none, sets: $project_name
 		enabled=false
 	fi
 	repo_url=$(read_env_value "REPO_URL")
+	subdir=$(read_env_value "SUBDIR")
 	use_global_pat=$(read_env_value "USE_GLOBAL_PAT")
 	if ! $use_global_pat; then  # force to boolean
 		use_global_pat=false
@@ -256,6 +257,13 @@ load_project_values() {  # args: $project_name, reads: none, sets: $project_name
 	local_pat=$(read_env_value "LOCAL_PAT")
 	path=$(read_env_value "PATH")
 	type=$(read_env_value "TYPE")
+
+	# Initialize gitpath based on whether subdir is specified
+	if [ -n "$subdir" ]; then
+		gitpath="$PROJECTS_DIR/${project_name}-fullgitrepo"
+	else
+		gitpath="$path"
+	fi
 
 	check_project_type
 
@@ -639,6 +647,7 @@ add_project() {  # args: $project_name, reads: none, sets: $project_name $env_fi
 	if [ -z "$repo" ]; then
 		repo=$project_name
 	fi
+	read -p "Subdirectory for sparse-checkout (default: none): " subdir
 	prompt_yes_no "Use global GitHub PAT?" && use_global_pat=true || use_global_pat=false
 	local_pat=""
 	if ! $use_global_pat; then
@@ -673,7 +682,7 @@ add_project() {  # args: $project_name, reads: none, sets: $project_name $env_fi
 }
 
 # Command: Remove a project by deleting the .env file.
-remove_project() {  # args: $project_name, reads: $env_file $project_name $enabled, sets: $env_file
+remove_project() {  # args: $project_name, reads: $env_file $project_name $enabled $gitpath $subdir $path, sets: $env_file
 	load_project_values "$1" || return 1
 	if $enabled; then
 		echo "Project '$project_name' is enabled, please disable it first."
@@ -688,6 +697,24 @@ remove_project() {  # args: $project_name, reads: $env_file $project_name $enabl
 	rm -f "$PROJECTS_DIR/$project_name.docker-compose.yml.bak"
 	rm -f "$PROJECTS_DIR/$project_name.docker-compose.yml.bak2"
 	rm -f "$PROJECTS_DIR/$project_name.service"
+
+
+	# If using subdir, ask about removing the full git repo
+	if [ -n "$subdir" ] && [ -d "$gitpath" ]; then
+		if ! $option_quiet && prompt_yes_no "Do you want to remove the full git repository at '$gitpath'?"; then
+			rm -rf "$gitpath"
+			# If project path is a symlink, remove it and create empty dir
+			if [ -L "$path" ]; then
+				rm -f "$path"
+				mkdir -p "$path"
+				echo "Removed symlink at '$path' and created empty directory"
+			fi
+			echo "Removed git repository at '$gitpath'"
+		else
+			echo "Git repository at '$gitpath' kept for potential reuse."
+		fi
+	fi
+
 	echo "Successfully removed project '$project_name'."
 }
 
@@ -698,24 +725,68 @@ list_project() {  # args: $project_name, reads: $enabled $project_name $path, se
 }
 
 # Utility: Run setup.sh if present and perform type-specific install/setup logic for the project.
-run_install() {  # args: none, reads: $repo_url $use_global_pat $local_pat $path $type $project_name, sets: none
+run_install() {  # args: none, reads: $repo_url $use_global_pat $local_pat $path $type $project_name $gitpath $subdir, sets: none
 	# check if type is supported
 	if ! $type_checked; then
 		echo "Unknown or unsupported type '$type', skipping install." 1>&2
 		return 1
 	fi
 
-	# if path does not exist or is empty, clone the repository
-	if [ ! -d "$path" ] || [ -z "$(ls -A "$path" 2>/dev/null)" ]; then
+
+	if [ -n "$subdir" ]; then  # Subdir mode: full repo is inside projects dir
+		# Check if we need to move an existing git repo
+		if [ ! -d "$gitpath" ] && [ -d "$path" ] && check_git_path "$path"; then
+			# If project is enabled, require disable first
+			if $enabled; then
+				echo "Found existing git repository at '$path', cannot move to '$gitpath' while project is enabled, please disable it first." 1>&2
+				return 1
+			fi
+			echo "Found existing git repository at '$path', moving to '$gitpath' ..."
+			mkdir -p "$(dirname "$gitpath")"
+			mv "$path" "$gitpath" || { echo "Failed to move git repository." 1>&2; return 1; }
+		fi
+	fi
+
+	# Create or verify gitpath (for both subdir and non-subdir mode)
+	if [ ! -d "$gitpath" ] || [ -z "$(ls -A "$gitpath" 2>/dev/null)" ]; then
 		repo_pat_url=$(get_repo_pat_url "$repo_url" "$use_global_pat" "$local_pat") || { echo "Could not get repository PAT URL." 1>&2; return 1; }
-		echo "Cloning $repo_url $([ "$repo_url" != "$repo_pat_url" ] && echo "using PAT") into $path ..."
-		git clone "$repo_pat_url" "$path" || { echo "Clone failed. Check credentials and repository access." 1>&2; return 1; }
-	else
-		mkdir -p "$path"
+		echo "Cloning $repo_url $([ "$repo_url" != "$repo_pat_url" ] && echo "using PAT") into '$gitpath' ..."
+		mkdir -p "$(dirname "$gitpath")"
+		git clone "$repo_pat_url" "$gitpath" || { echo "Clone failed. Check credentials and repository access." 1>&2; return 1; }
+	elif ! check_git_path "$gitpath"; then
+		echo "Directory '$gitpath' exists but is not a git repository." 1>&2
+		return 1
+	fi
+
+	if [ -n "$subdir" ]; then  # Subdir mode: full repo is inside projects dir
+		# Verify subdir exists in the repository
+		if [ ! -d "$gitpath/$subdir" ]; then
+			echo "Specified subdirectory '$subdir' not found in repository at $gitpath" 1>&2
+			return 1
+		fi
+
+		# Create or update symlink
+		if [ -L "$path" ]; then
+			local current_target=$(readlink -f "$path")
+			local expected_target=$(readlink -f "$gitpath/$subdir")
+			if [ "$current_target" != "$expected_target" ]; then
+				echo "Fixing symlink '$path' to point to '$gitpath/$subdir'"
+				rm "$path"
+				ln -sf "$gitpath/$subdir" "$path"
+			fi
+		else
+			if [ -d "$path" ]; then
+				echo "Path '$path' exists but is not a symlink, cannot link to specified repo subdir." 1>&2
+				return 1
+			fi
+			echo "Creating symlink from '$path' to '$gitpath/$subdir'"
+			mkdir -p "$(dirname "$path")"
+			ln -sf "$gitpath/$subdir" "$path"
+		fi
 	fi
 
 	did_run_setup=false
-	# run setup.sh if exists
+	# run setup.sh if exists for all project types
 	if [ -f "$path/setup.sh" ]; then
 		run_script "setup.sh" || return 1;
 		did_run_setup=true
@@ -1045,7 +1116,7 @@ restart_project() {  # args: $project_name, reads: $enabled $type $path $project
 }
 
 # Command: Show the status of a project, including enabled/running state and git status.
-status_project() {  # args: $project_name, reads: $enabled $type $path $project_name $repo_url $use_global_pat $local_pat $all_projects, sets: none
+status_project() {  # args: $project_name, reads: $enabled $type $path $project_name $repo_url $use_global_pat $local_pat $all_projects $gitpath, sets: none
 	load_project_values "$1" || return 1
 	echo "Enabled: $($enabled && echo "✓" || echo "✗")"
 	if ! $type_checked; then
@@ -1081,6 +1152,9 @@ status_project() {  # args: $project_name, reads: $enabled $type $path $project_
 	esac
 	echo "Path: $path"
 	echo "Repository: $repo_url"
+	if [ -n "$subdir" ]; then
+		echo "Subdirectory for sparse-checkout: $subdir"
+	fi
 	if $use_global_pat; then
 		echo "Authentication: Using global PAT"
 	elif [ -n "$local_pat" ]; then
@@ -1090,8 +1164,8 @@ status_project() {  # args: $project_name, reads: $enabled $type $path $project_
 	fi
 	# Check for git updates
 	echo -n "Git status: "
-	if check_git_path "$path"; then
-		local error_msg=$(check_git_upstream "$path" 2>&1)
+	if check_git_path "$gitpath"; then
+		local error_msg=$(check_git_upstream "$gitpath" 2>&1)
 		if [ $? -eq 0 ]; then
 			echo "Up to date$([ $type = "docker" ] && echo " (There might be new docker images available though)")"
 		else
@@ -1150,21 +1224,21 @@ logs_project() {  # args: $project_name, reads: $type $path $project_name $all_p
 is_manager_updating=false
 did_update=false
 # Command: Update the git repository for a project.
-update_git_repo() {  # args: none, reads: $path $repo_url $use_global_pat $local_pat, sets: none
+update_git_repo() {  # args: none, reads: $gitpath $repo_url $use_global_pat $local_pat, sets: none
 	did_update=false
-	if ! check_git_path "$path"; then
+	if ! check_git_path "$gitpath"; then
 		echo "Path is not a git repository, skipping git repository update."
 		return
 	fi
 	repo_pat_url=$(get_repo_pat_url "$repo_url" "$use_global_pat" "$local_pat")
 	echo "Fetching updates ..."
-	git -C "$path" fetch --quiet || { echo "Failed to fetch upstream" 1>&2; return 1; }
-	local previous_hash=$(git -C "$path" rev-parse --short HEAD 2>/dev/null)
-	local local_branch=$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null)
-	local upstream_ref=$(git -C "$path" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null) || { echo "No upstream configured" 1>&2; return 1; }
+	git -C "$gitpath" fetch --quiet || { echo "Failed to fetch upstream" 1>&2; return 1; }
+	local previous_hash=$(git -C "$gitpath" rev-parse --short HEAD 2>/dev/null)
+	local local_branch=$(git -C "$gitpath" rev-parse --abbrev-ref HEAD 2>/dev/null)
+	local upstream_ref=$(git -C "$gitpath" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null) || { echo "No upstream configured" 1>&2; return 1; }
 	local remote_name=$(echo "$upstream_ref" | cut -d'/' -f1)
 	local remote_branch=$(echo "$upstream_ref" | cut -d'/' -f2-)
-	local behind=$(git -C "$path" rev-list --count "$local_branch..$upstream_ref" 2>/dev/null) || {
+	local behind=$(git -C "$gitpath" rev-list --count "$local_branch..$upstream_ref" 2>/dev/null) || {
 		echo "Failed to get commit count" 1>&2
 		return 1
 	}
@@ -1177,12 +1251,12 @@ update_git_repo() {  # args: none, reads: $path $repo_url $use_global_pat $local
 	else
 		echo "Updating $($is_manager_updating && echo "JeredMgr from $VERSION" || echo "git repository") ($behind commits behind) ..."
 		startprogress ""
-		showprogress git -C "$path" pull "$repo_pat_url" || {
+		showprogress git -C "$gitpath" pull "$repo_pat_url" || {
 			endprogress "Update failed with exit code $?!"
 			echo "$lastoutput"
 			return 1
 		}
-		local current_hash=$(git -C "$path" rev-parse --short HEAD 2>/dev/null)
+		local current_hash=$(git -C "$gitpath" rev-parse --short HEAD 2>/dev/null)
 		if $is_manager_updating; then
 			endprogress "Update complete from $previous_hash to $current_hash"
 		else
@@ -1273,7 +1347,7 @@ self_update() {  # args: none, reads: none, sets: none
 		echo "Successfully updated JeredMgr to $VERSION."
 		return
 	fi
-	path=$(dirname "$0")
+	gitpath=$(dirname "$0")
 	repo_url="$SELFUPDATE_REPO_URL"
 	use_global_pat=false
 	local_pat=""
