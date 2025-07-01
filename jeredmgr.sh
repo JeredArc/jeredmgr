@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.29                                                  #
+# JeredMgr 1.0.30                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -1401,7 +1401,7 @@ shell_project() {  # args: $project_name, reads: $enabled $type $path $project_n
 		fi
 	fi
 
-	format_header "Opening container-shell for project $(format_project "$project_name") service ${DARKGREY}$service_name${RESET} ..."
+	format_header "Opening container-shell for project $(format_project "$project_name") service ${DARKGREY}$service_name${RESET}:"
 	docker compose -f "$compose_file" --project-directory "$path" exec "$service_name" sh -l
 }
 
