@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.35                                                  #
+# JeredMgr 1.0.36                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -1329,14 +1329,14 @@ logs_project() {  # args: $project_name, reads: $type $path $project_name $all_p
 				format_warning "No valid docker compose file found, cannot show logs."
 				return 1
 			fi
-			docker compose -f "$compose_file" --project-directory "$path" logs $(! $all_projects && [ "$parameter_lines" = "f" ] && echo "-f" || echo "-n $parameter_lines")
+			docker compose -f "$compose_file" --project-directory "$path" logs $(! $all_projects && [ "$parameter_lines" = "f" ] && echo "-f" || echo "-n ${parameter_lines//f/$LOG_LINES}")
 			;;
 		service)
 			if ! check_service_file; then
 				format_warning "No valid service file found, cannot show logs."
 				return 1
 			fi
-			journalctl -u "$project_name" $(! $all_projects && [ "$parameter_lines" = "f" ] && echo "-f" || echo "-n $parameter_lines")
+			journalctl -u "$project_name" $(! $all_projects && [ "$parameter_lines" = "f" ] && echo "-f" || echo "-n ${parameter_lines//f/$LOG_LINES}")
 			;;
 		scripts)
 			if [ -f "$path/logs.sh" ]; then
