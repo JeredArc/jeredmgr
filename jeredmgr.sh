@@ -60,7 +60,7 @@ format_project() {  # args: $project, reads: none, sets: none
 
 # Utility: Format paths
 format_path() {  # args: $path, reads: none, sets: none
-	echo -e "${ITALIC}${DIM}$1${RESET}"
+	echo -e "${UNDERLINE}${DIM}$1${RESET}"
 }
 
 # Utility: Format success messages
