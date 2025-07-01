@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.36                                                  #
+# JeredMgr 1.0.37                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -1448,7 +1448,7 @@ update_git_repo() {  # args: none, reads: $gitpath $repo_url $use_global_pat $lo
 		return 1
 	fi
 	if [ "$behind" -eq 0 ]; then
-		format_success "$($is_manager_updating && echo "JeredMgr" || echo "Git repository") is up to date$($is_manager_updating && echo " ($VERSION)")!"
+		format_success "$($is_manager_updating && echo "JeredMgr" || echo "Git repository") is already up to date$($is_manager_updating && echo " ($VERSION)")!"
 	else
 		echo "Updating $($is_manager_updating && echo "JeredMgr from $VERSION" || echo "git repository") ($behind commits behind) ..."
 		startprogress ""
