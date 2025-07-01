@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.25                                                  #
+# JeredMgr 1.0.26                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -691,11 +691,18 @@ for_each_project() {  # args: $project_name $action, reads: none, sets: none
 			fi
 			${action}_project "$project_name" || all_success=false
 		else
-			format_error "Project '$project_name' not found."
+			format_error "Project $(format_project "$project_name") not found."
 		fi
 	else
 		local is_first=true
-		for env_file in "$PROJECTS_DIR"/*.env; do
+		# First check if any .env files exist
+		local env_files=("$PROJECTS_DIR"/*.env)
+		if [ ! -e "${env_files[0]}" ]; then
+			format_warning "No projects found in $(format_path "$PROJECTS_DIR")."
+			return 0
+		fi
+		# Now iterate over the files
+		for env_file in "${env_files[@]}"; do
 			local project_name=$(basename "$env_file" .env)
 			if [ "$action" != "list" ]; then
 				if ! $is_first; then
@@ -703,11 +710,6 @@ for_each_project() {  # args: $project_name $action, reads: none, sets: none
 				fi
 				is_first=false
 				format_header "###   ${action_upper} for project:  $(format_project "$project_name")   ###"
-			fi
-			if [ ! -f "$env_file" ]; then
-				format_error "Invalid project file '$env_file'."
-				all_success=false
-				continue
 			fi
 			${action}_project "$project_name" || all_success=false
 		done
