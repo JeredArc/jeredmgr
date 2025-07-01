@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.26                                                  #
+# JeredMgr 1.0.27                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -749,7 +749,7 @@ add_project() {  # args: $project_name, reads: none, sets: $project_name $env_fi
 	if [ -z "$repo" ]; then
 		repo=$project_name
 	fi
-	read -p "Subdirectory for sparse-checkout (default: none): " subdir
+	read -p "Subdirectory inside git repo (default: none): " subdir
 	prompt_yes_no "Use global GitHub PAT?" && use_global_pat=true || use_global_pat=false
 	local_pat=""
 	if ! $use_global_pat; then
@@ -803,17 +803,17 @@ remove_project() {  # args: $project_name, reads: $env_file $project_name $enabl
 
 	# If using subdir, ask about removing the full git repo
 	if [ -n "$subdir" ] && [ -d "$gitpath" ]; then
-		if ! $option_quiet && prompt_yes_no "Do you want to remove the full git repository at '$(format_path "$gitpath")'?"; then
+		if ! $option_quiet && prompt_yes_no "Do you want to remove the full git repository at $(format_path "$gitpath")?"; then
 			rm -rf "$gitpath"
 			# If project path is a symlink, remove it and create empty dir
 			if [ -L "$path" ]; then
 				rm -f "$path"
 				mkdir -p "$path"
-				format_success "Removed symlink at '$(format_path "$path")' and created empty directory"
+				format_success "Removed symlink at $(format_path "$path") and created empty directory"
 			fi
-			format_success "Removed git repository at '$(format_path "$gitpath")'"
+			format_success "Removed git repository at $(format_path "$gitpath")"
 		else
-			echo "Git repository at '$(format_path "$gitpath")' kept for potential reuse."
+			echo "Git repository at $(format_path "$gitpath") kept for potential reuse."
 		fi
 	fi
 
@@ -830,7 +830,7 @@ list_project() {  # args: $project_name, reads: $enabled $project_name $path, se
 run_install() {  # args: none, reads: $repo_url $use_global_pat $local_pat $path $type $project_name $gitpath $subdir, sets: none
 	# check if type is supported
 	if ! $type_checked; then
-		echo "Unknown or unsupported type '$type', skipping install." 1>&2
+		format_warning "Unknown or unsupported type '$type', skipping install."
 		return 1
 	fi
 
@@ -840,30 +840,30 @@ run_install() {  # args: none, reads: $repo_url $use_global_pat $local_pat $path
 		if [ ! -d "$gitpath" ] && [ -d "$path" ] && check_git_path "$path"; then
 			# If project is enabled, require disable first
 			if $enabled; then
-				echo "Found existing git repository at '$path', cannot move to '$gitpath' while project is enabled, please disable it first." 1>&2
+				format_error "Found existing git repository at $(format_path "$path"), cannot move to $(format_path "$gitpath") while project is enabled, please disable it first."
 				return 1
 			fi
-			echo "Found existing git repository at '$path', moving to '$gitpath' ..."
+			echo "Found existing git repository at $(format_path "$path"), moving to $(format_path "$gitpath") ..."
 			mkdir -p "$(dirname "$gitpath")"
-			mv "$path" "$gitpath" || { echo "Failed to move git repository." 1>&2; return 1; }
+			mv "$path" "$gitpath" || { format_error "Failed to move git repository."; return 1; }
 		fi
 	fi
 
 	# Create or verify gitpath (for both subdir and non-subdir mode)
 	if [ ! -d "$gitpath" ] || [ -z "$(ls -A "$gitpath" 2>/dev/null)" ]; then
 		repo_pat_url=$(get_repo_pat_url "$repo_url" "$use_global_pat" "$local_pat") || { echo "Could not get repository PAT URL." 1>&2; return 1; }
-		echo "Cloning $repo_url $([ "$repo_url" != "$repo_pat_url" ] && echo "using PAT") into '$gitpath' ..."
+		echo "Cloning $repo_url $([ "$repo_url" != "$repo_pat_url" ] && echo "using PAT") into $(format_path "$gitpath") ..."
 		mkdir -p "$(dirname "$gitpath")"
-		git clone "$repo_pat_url" "$gitpath" || { echo "Clone failed. Check credentials and repository access." 1>&2; return 1; }
+		git clone "$repo_pat_url" "$gitpath" || { format_error "Clone failed. Check credentials and repository access."; return 1; }
 	elif ! check_git_path "$gitpath"; then
-		echo "Directory '$gitpath' exists but is not a git repository." 1>&2
+		format_error "Directory $(format_path "$gitpath") exists but is not a git repository."
 		return 1
 	fi
 
 	if [ -n "$subdir" ]; then  # Subdir mode: full repo is inside projects dir
 		# Verify subdir exists in the repository
 		if [ ! -d "$gitpath/$subdir" ]; then
-			echo "Specified subdirectory '$subdir' not found in repository at $gitpath" 1>&2
+			format_error "Specified subdirectory $(format_path "$subdir") not found in repository at $(format_path "$gitpath")."
 			return 1
 		fi
 
@@ -872,16 +872,16 @@ run_install() {  # args: none, reads: $repo_url $use_global_pat $local_pat $path
 			local current_target=$(readlink -f "$path")
 			local expected_target=$(readlink -f "$gitpath/$subdir")
 			if [ "$current_target" != "$expected_target" ]; then
-				echo "Fixing symlink '$path' to point to '$gitpath/$subdir'"
+				echo "Fixing symlink $(format_path "$path") to point to $(format_path "$gitpath/$subdir")"
 				rm "$path"
 				ln -sf "$gitpath/$subdir" "$path"
 			fi
 		else
 			if [ -d "$path" ]; then
-				echo "Path '$path' exists but is not a symlink, cannot link to specified repo subdir." 1>&2
+				format_error "Path $(format_path "$path") exists but is not a symlink, cannot link to specified repo subdir."
 				return 1
 			fi
-			echo "Creating symlink from '$path' to '$gitpath/$subdir'"
+			echo "Creating symlink from $(format_path "$path") to $(format_path "$gitpath/$subdir")"
 			mkdir -p "$(dirname "$path")"
 			ln -sf "$gitpath/$subdir" "$path"
 		fi
@@ -898,7 +898,7 @@ run_install() {  # args: none, reads: $repo_url $use_global_pat $local_pat $path
 	case "$type" in
 		docker)
 			if ! select_compose_file; then
-				echo "No docker compose file could be determined."
+				format_error "No docker compose file could be determined."
 				return 1
 			fi
 			echo "Building possible docker images ..."
@@ -906,20 +906,20 @@ run_install() {  # args: none, reads: $repo_url $use_global_pat $local_pat $path
 			;;
 		service)
 			if ! select_service_file; then
-				echo "No service file could be determined."
+				format_error "No service file could be determined."
 				return 1
 			fi
 
 			service_link="/etc/systemd/system/$project_name.service"
 			if [ -f "$service_link" ] && [ "$(readlink -f "$service_link")" != "$service_file" ]; then
-				echo "A service file already exists at $service_link, cannot install $project_name." 1>&2
+				format_error "A service file already exists at $(format_path "$service_link"), cannot install $(format_project "$project_name")."
 				return 1
 			fi
 			if [ ! -L "$service_link" ]; then
-				ln -sf "$service_file" "$service_link" || { echo "Failed to link service file $service_link to $service_file" 1>&2; return 1; }
-				echo "Linked service file $service_link to $service_file"
+				ln -sf "$service_file" "$service_link" || { format_error "Failed to link service file $(format_path "$service_link") to $(format_path "$service_file")"; return 1; }
+				echo "Linked service file $(format_path "$service_link") to $(format_path "$service_file")"
 			else
-				echo "Service file $service_link already linked to $service_file"
+				echo "Service file $(format_path "$service_link") already linked to $(format_path "$service_file")"
 			fi
 
 			echo "Reloading systemd daemon ..."
@@ -927,7 +927,7 @@ run_install() {  # args: none, reads: $repo_url $use_global_pat $local_pat $path
 			;;
 		scripts)
 			if ! $did_run_setup; then
-				echo "No setup.sh script found in $path, only setting ENABLED=true."
+				format_warning "No $(format_path "setup.sh") script found in $(format_path "$path"), only setting ENABLED=true."
 			fi
 			;;
 	esac
@@ -937,12 +937,12 @@ run_install() {  # args: none, reads: $repo_url $use_global_pat $local_pat $path
 enable_project() {  # args: $project_name, reads: $env_file, sets: none
 	load_project_values "$1" || return 1
 	if ! run_install; then
-		format_error "Install failed, $($enabled && echo "disabling project" || echo "project remains disabled")"
+		format_error "Install failed with project $(format_project "$project_name"), $($enabled && echo "disabling project" || echo "project remains disabled")"
 		write_env_value "ENABLED" "false"
 		return 1
 	fi
 	if $enabled; then
-		echo "Successfully re-installed project $(format_project "$project_name"), it was already enabled."
+		format_success "Successfully re-installed project $(format_project "$project_name"), it was already enabled."
 	else
 		write_env_value "ENABLED" "true"
 		format_success "Successfully installed and enabled project $(format_project "$project_name")."
@@ -959,7 +959,7 @@ enable_project() {  # args: $project_name, reads: $env_file, sets: none
 disable_project() {  # args: $project_name, reads: $env_file $type $path, sets: none
 	load_project_values "$1" || return 1
 	if ! $enabled; then
-		echo "Already disabled, skipping."
+		format_warning "Already disabled, skipping."
 		return
 	fi
 	if ! $type_checked; then
@@ -980,7 +980,7 @@ disable_project() {  # args: $project_name, reads: $env_file $type $path, sets: 
 							else
 								mv "$compose_file.bak" "$compose_file.bak2" 2>/dev/null
 								mv "$compose_file" "$compose_file.bak"
-								echo "Created backup of compose file to '$(format_path "$compose_file.bak")'."
+								echo "Created backup of compose file to $(format_path "$compose_file.bak")."
 							fi
 						fi
 					else
@@ -1000,7 +1000,7 @@ disable_project() {  # args: $project_name, reads: $env_file $type $path, sets: 
 					echo "Stopping systemd service $(format_project "$project_name") ..."
 					systemctl stop "$project_name"
 					rm -f "$service_link"
-					format_success "Removed service file link '$(format_path "$service_link")'."
+					format_success "Removed service file link $(format_path "$service_link")."
 				fi
 				echo "Reloading systemd daemon ..."
 				systemctl daemon-reload
@@ -1084,7 +1084,7 @@ start_project() {  # args: $project_name, reads: $enabled $type $path $project_n
 			if [ -f "$path/start.sh" ]; then
 				run_script "start.sh" || return 1;
 			else
-				format_error "No '$(format_path "start.sh")' script found in '$(format_path "$path")'."
+				format_error "No $(format_path "start.sh") script found in $(format_path "$path")."
 				return 1
 			fi
 			;;
@@ -1151,7 +1151,7 @@ stop_project() {  # args: $project_name, reads: $type $path $project_name, sets:
 			if [ -f "$path/stop.sh" ]; then
 				run_script "stop.sh" || return 1;
 			else
-				format_error "No '$(format_path "stop.sh")' script found in '$(format_path "$path")'."
+				format_error "No $(format_path "stop.sh") script found in $(format_path "$path")."
 				return 1
 			fi
 			;;
@@ -1218,7 +1218,7 @@ restart_project() {  # args: $project_name, reads: $enabled $type $path $project
 				run_script "stop.sh" || return 1;
 				run_script "start.sh" || return 1;
 			else
-				format_error "No '$(format_path "restart.sh")' or '$(format_path "start.sh")' + '$(format_path "stop.sh")' scripts found in '$(format_path "$path")'."
+				format_error "No $(format_path "restart.sh") or $(format_path "start.sh") + $(format_path "stop.sh") scripts found in $(format_path "$path")."
 				return 1
 			fi
 			;;
@@ -1257,7 +1257,7 @@ status_project() {  # args: $project_name, reads: $enabled $type $path $project_
 			if [ -f "$path/status.sh" ]; then
 				run_script "status.sh" || return 1;
 			else
-				format_warning "No '$(format_path "status.sh")' script found in '$(format_path "$path")'."
+				format_warning "No $(format_path "status.sh") script found in $(format_path "$path")."
 			fi
 			;;
 	esac
@@ -1325,7 +1325,7 @@ logs_project() {  # args: $project_name, reads: $type $path $project_name $all_p
 			if [ -f "$path/logs.sh" ]; then
 				run_script "logs.sh" || return 1;
 			else
-				format_warning "No '$(format_path "logs.sh")' script found in '$(format_path "$path")'."
+				format_warning "No $(format_path "logs.sh") script found in $(format_path "$path")."
 				return 1
 			fi
 			;;
