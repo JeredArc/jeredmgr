@@ -17,17 +17,19 @@ VERSION=$(grep -E "^# JeredMgr [0-9]+\.[0-9]+\.[0-9]+" $0 | sed -E 's/^# JeredMg
 
 # Shell formatting
 if [ -t 1 ]; then  # Only use colors when outputting to terminal
-	BOLD="\033[1m"
-	DIM="\033[2m"
-	ITALIC="\033[3m"
-	UNDERLINE="\033[4m"
-	RED="\033[31m"
-	GREEN="\033[32m"
-	YELLOW="\033[33m"
-	BLUE="\033[34m"
-	MAGENTA="\033[35m"
-	CYAN="\033[36m"
-	RESET="\033[0m"
+	ESC=$(echo -ne "\033")
+	BOLD="${ESC}[1m"
+	DIM="${ESC}[2m"
+	ITALIC="${ESC}[3m"
+	UNDERLINE="${ESC}[4m"
+	RED="${ESC}[31m"
+	GREEN="${ESC}[32m"
+	YELLOW="${ESC}[33m"
+	BLUE="${ESC}[34m"
+	MAGENTA="${ESC}[35m"
+	CYAN="${ESC}[36m"
+	RESET="${ESC}[0m"
+	DARKGREY="${ESC}[90m"
 else  # No colors when piping
 	BOLD=""
 	DIM=""
@@ -40,6 +42,7 @@ else  # No colors when piping
 	MAGENTA=""
 	CYAN=""
 	RESET=""
+	DARKGREY=""
 fi
 
 # Utility: Format section headers
@@ -49,32 +52,32 @@ format_header() {  # args: $text, reads: none, sets: none
 
 # Utility: Format command names
 format_command() {  # args: $command, reads: none, sets: none
-	echo -e "${BOLD}${CYAN}$1${RESET}"
+	echo -e "${BOLD}${CYAN}${1//${RESET}/${RESET}${BOLD}${CYAN}}${RESET}"
 }
 
 # Utility: Format project names
 format_project() {  # args: $project, reads: none, sets: none
-	echo -e "${BOLD}${MAGENTA}$1${RESET}"
+	echo -e "${BOLD}${MAGENTA}${1//${RESET}/${RESET}${BOLD}${MAGENTA}}${RESET}"
 }
 
 # Utility: Format paths
 format_path() {  # args: $path, reads: none, sets: none
-	echo -e "${UNDERLINE}${DIM}$1${RESET}"
+	echo -e "${UNDERLINE}${DARKGREY}${1//${RESET}/${RESET}${UNDERLINE}${DARKGREY}}${RESET}"
 }
 
 # Utility: Format success messages
 format_success() {  # args: $message, reads: none, sets: none
-	echo -e "${GREEN}$1${RESET}"
+	echo -e "${GREEN}${1//${RESET}/${RESET}${GREEN}}${RESET}"
 }
 
 # Utility: Format error messages
 format_error() {  # args: $message, reads: none, sets: none
-	echo -e "${RED}$1${RESET}"
+	echo -e "${RED}${1//${RESET}/${RESET}${RED}}${RESET}"
 }
 
 # Utility: Format warning messages
 format_warning() {  # args: $message, reads: none, sets: none
-	echo -e "${YELLOW}$1${RESET}"
+	echo -e "${YELLOW}${1//${RESET}/${RESET}${YELLOW}}${RESET}"
 }
 
 # Utility: Format status indicators
@@ -88,7 +91,7 @@ format_status() {  # args: $status, reads: none, sets: none
 
 # Utility: List available commands and their descriptions.
 list_commands() {  # args: none, reads: none, sets: none
-	echo -e "Usage: ${BOLD}$0 ${CYAN}<command>${RESET} ${MAGENTA}[project]${RESET} [options]"
+	echo -e "Usage: ${BOLD}$0${RESET} $(format_command "<command>") $(format_project "[project]") ${BOLD}[options]${RESET}"
 	echo ""
 	format_header "# Available commands:"
 	echo -e "   $(format_command "help")                Show help"
@@ -107,10 +110,10 @@ list_commands() {  # args: none, reads: none, sets: none
 	echo -e "   $(format_command "self-update")         Update manager script"
 	echo ""
 	format_header "# Options and parameters:"
-	echo -e "   ${BOLD}-q, --quiet${RESET}                 Suppress prompts (for automation)"
-	echo -e "   ${BOLD}-f, --force${RESET}                 Force actions without confirmation prompts (use with caution)"
-	echo -e "   ${BOLD}-s, --no-status-check${RESET}       Don't retry checking status after starting or stopping a project"
-	echo -e "   ${BOLD}-n, --number-of-lines <N>${RESET}   Show N log lines or use 'f' (follow) for 'logs' command (default: follow / for all projects $LOG_LINES)"
+	echo -e "   ${BOLD}-q${RESET}, ${BOLD}--quiet${RESET}                 Suppress prompts (for automation)"
+	echo -e "   ${BOLD}-f${RESET}, ${BOLD}--force${RESET}                 Force actions without confirmation prompts (use with caution)"
+	echo -e "   ${BOLD}-s${RESET}, ${BOLD}--no-status-check${RESET}       Don't retry checking status after starting or stopping a project"
+	echo -e "   ${BOLD}-n${RESET}, ${BOLD}--number-of-lines <N>${RESET}   Show N log lines or use 'f' (follow) for 'logs' command (default: follow / for all projects $LOG_LINES)"
 }
 
 # Command: Print detailed help and workflow information for JeredMgr.
@@ -122,7 +125,7 @@ show_help() {  # args: none, reads: none, sets: none
 	echo -e ""
 	format_header "# When installing (enabling or updating) a project, JeredMgr will:"
 	echo -e ""
-	echo -e "- Look for a ${BOLD}setup.sh${RESET} script in the project path and run it."
+	echo -e "- Look for a $(format_path "setup.sh") script in the project path and run it."
 	echo -e ""
 	echo -e "- Type '${BOLD}docker${RESET}'"
 	echo -e "   Link the $(format_path "<project-name>.docker-compose.yml") file in the projects directory, chosen in the following order:"
@@ -131,8 +134,8 @@ show_help() {  # args: none, reads: none, sets: none
 	echo -e "   - A $(format_path "docker-compose-default.yml") file in the project path"
 	echo -e "   - A valid $(format_path "<project-name>.docker-compose.yml") link file in the projects directory"
 	echo -e "   - Look for a $(format_path "Dockerfile") in the project directory and create a $(format_path "<project-name>.docker-compose.yml") file in the projects directory from that"
-	echo -e "     with a comment ${ITALIC}${DIM}'# Auto-generated by JeredMgr, will remove images on uninstall'${RESET}"
-	echo -e "   - Otherwise offer to create a Dockerfile in the project path"
+	echo -e "     with a comment ${ITALIC}${DARKGREY}'# Auto-generated by JeredMgr, will remove images on uninstall'${RESET}"
+	echo -e "   - Otherwise offer to create a $(format_path "Dockerfile") in the project path"
 	echo -e ""
 	echo -e "- Type '${BOLD}service${RESET}'"
 	echo -e "   Link the $(format_path "<project-name>.service") file in the projects directory, chosen in the following order:"
@@ -141,7 +144,7 @@ show_help() {  # args: none, reads: none, sets: none
 	echo -e "   - A $(format_path "default.service") file in the project path"
 	echo -e "   - A valid $(format_path "<project-name>.service") link file in the projects directory"
 	echo -e "   - Otherwise offer to create a $(format_path "<project-name>.service") file in the projects directory"
-	echo -e "   - A link to the $(format_path "<project-name>.service") file will be created in /etc/systemd/system/"
+	echo -e "   - A link to the $(format_path "<project-name>.service") file will be created in $(format_path "/etc/systemd/system/")"
 	echo -e ""
 	format_header "# When running a project, JeredMgr will:"
 	echo -e ""
@@ -157,11 +160,11 @@ show_help() {  # args: none, reads: none, sets: none
 	echo -e ""
 	echo -e "- Type '${BOLD}scripts${RESET}'"
 	echo -e "  Look for the following scripts in the project path and run them with the corresponding commands:"
-	echo -e "  - ${BOLD}start.sh${RESET}"
-	echo -e "  - ${BOLD}stop.sh${RESET}"
-	echo -e "  - ${BOLD}restart.sh${RESET} (otherwise ${BOLD}start.sh${RESET} + ${BOLD}stop.sh${RESET})"
-	echo -e "  - ${BOLD}status.sh${RESET}"
-	echo -e "  - ${BOLD}logs.sh${RESET}"
+	echo -e "  - $(format_path "start.sh")"
+	echo -e "  - $(format_path "stop.sh")"
+	echo -e "  - $(format_path "restart.sh") (otherwise $(format_path "start.sh") + $(format_path "stop.sh"))"
+	echo -e "  - $(format_path "status.sh")"
+	echo -e "  - $(format_path "logs.sh")"
 	echo -e ""
 	format_header "# When uninstalling a project, JeredMgr will:"
 	echo -e ""
@@ -169,20 +172,20 @@ show_help() {  # args: none, reads: none, sets: none
 	echo -e ""
 	echo -e "- Type '${BOLD}docker${RESET}'"
 	echo -e "   Remove the docker container"
-	echo -e "   If the $(format_path "docker-compose.yml") file has the ${ITALIC}${DIM}'# Auto-generated ...'${RESET} comment, remove all docker images named <project-name>"
+	echo -e "   If the $(format_path "docker-compose.yml") file has the ${ITALIC}${DARKGREY}'# Auto-generated ...'${RESET} comment, remove all docker images named <project-name>"
 	echo -e ""
 	echo -e "- Type '${BOLD}service${RESET}'"
 	echo -e "   Delete the service file link from $(format_path "/etc/systemd/system/")"
 	echo -e "   Remove the service with ${BOLD}\`systemctl daemon-reload\`${RESET}"
 	echo -e ""
 	echo -e "- Type '${BOLD}scripts${RESET}'"
-	echo -e "  Look for a ${BOLD}uninstall.sh${RESET} script in the project path and run it"
+	echo -e "  Look for a $(format_path "uninstall.sh") script in the project path and run it"
 	echo -e ""
 	echo -e "- The project with its .env file isn't deleted, so it can be re-enabled again later"
 	echo -e ""
 	format_header "# When updating a project, JeredMgr will:"
 	echo -e ""
-	echo -e "- Look for an ${BOLD}update.sh${RESET} script in the project path and run it"
+	echo -e "- Look for an $(format_path "update.sh") script in the project path and run it"
 	echo -e ""
 	echo -e "- Else:"
 	echo -e "  - Update the project using git if it's a git repository"
@@ -190,9 +193,9 @@ show_help() {  # args: none, reads: none, sets: none
 	echo -e ""
 	format_header "# Further notes:"
 	echo -e ""
-	echo -e "- The provided project name can contain ${BOLD}+${RESET} as wildcard to match a single project"
+	echo -e "- The provided project name can contain '${ITALIC}${DARKGREY}+${RESET}' as wildcard to match a single project"
 	echo -e ""
-	echo -e "- To select a sub directory from a git repository, provide it when creating the project or set the ${BOLD}SUBDIR${RESET} variable in the .env file"
+	echo -e "- To select a sub directory from a git repository, provide it when creating the project or set the ${DARKGREY}SUBDIR${RESET} variable in the .env file"
 	echo -e "  The full repo will then be cloned into a subdirectory of JeredMgr's projects directory,"
 	echo -e "  and the project path will be set up as a link pointing to the sub directory."
 }
@@ -676,11 +679,12 @@ for_each_project() {  # args: $project_name $action, reads: none, sets: none
 	local action="$1"
 	local all_success=true
 
+	local action_upper=$(echo "$action" | tr '[:lower:]' '[:upper:]')
 	if [ -n "$project_name" ]; then
 		local env_file="${PROJECTS_DIR}/${project_name}.env"
 		if [ -f "$env_file" ]; then
 			if [ "$action" != "list" ]; then
-				format_header "###   ${action^^} for project:  $(format_project "$project_name")   ###"
+				format_header "###   ${action_upper} for project:  $(format_project "$project_name")   ###"
 			fi
 			${action}_project "$project_name" || all_success=false
 		else
@@ -695,7 +699,7 @@ for_each_project() {  # args: $project_name $action, reads: none, sets: none
 					echo -e "${DIM}----------------------------------------${RESET}"
 				fi
 				is_first=false
-				format_header "###   ${action^^} for project:  $(format_project "$project_name")   ###"
+				format_header "###   ${action_upper} for project:  $(format_project "$project_name")   ###"
 			fi
 			if [ ! -f "$env_file" ]; then
 				format_error "Invalid project file '$env_file'."
@@ -1578,7 +1582,7 @@ while [[ $# -gt 0 ]]; do
 			elif [[ "$2" =~ ^[0-9]+$ ]]; then
 				parameter_lines="$2"
 			else
-				format_error "Error: Line count must be a number or 'f'/'follow'"
+				format_error "Error: Line count must be a number or 'f'/'follow'!"
 				exit 1
 			fi
 			shift 2
@@ -1588,7 +1592,7 @@ while [[ $# -gt 0 ]]; do
 			shift
 			;;
 		-*)
-			format_error "Unknown option: $1"
+			format_error "Unknown option: '$1'!"
 			list_commands
 			exit 1
 			;;
@@ -1613,8 +1617,13 @@ if [ -z "$command" ]; then
 	exit 1
 fi
 
+if [ "$command" = "help" ]; then
+	show_help
+	exit 0
+fi
+
 all_projects=$([ -z "$project_name" ] && echo "true" || echo "false")
-mkdir -p "$PROJECTS_DIR"
+mkdir -p "$PROJECTS_DIR" || { format_error "Failed to create projects directory '$PROJECTS_DIR'!"; exit 1; }
 ensure_git_installed
 
 # Handle wildcard matching if project_name contains +
@@ -1628,7 +1637,7 @@ if [ -n "$project_name" ] && [[ "$project_name" == *"+"* ]]; then
 	match_count=$(echo "$matches" | grep -c "^")
 	
 	if [ $match_count -eq 0 ]; then
-		format_error "No projects match pattern '$project_name'"
+		format_error "No projects match pattern '$project_name'!"
 		exit 1
 	elif [ $match_count -eq 1 ]; then
 		project_name="$matches"
@@ -1640,9 +1649,6 @@ if [ -n "$project_name" ] && [[ "$project_name" == *"+"* ]]; then
 fi
 
 case $command in
-	help)
-		show_help
-		;;
 	add)
 		add_project "$project_name" || exit_code=$?
 		;;
@@ -1680,7 +1686,7 @@ case $command in
 		for_each_project "$project_name" "$command" || exit_code=$?
 		;;
 	shell)
-		if $all_projects; then format_error "Please specify a project name."; exit 1; fi
+		if $all_projects; then format_error "Please specify a project name!"; exit 1; fi
 		shell_project "$project_name" || exit_code=$?
 		;;
 	update)
@@ -1702,7 +1708,7 @@ case $command in
 		self_update || exit_code=$?
 		;;
 	*)
-		format_error "Unknown command: $command"
+		format_error "Unknown command: '$command'!"
 		list_commands
 		exit 1
 		;;
