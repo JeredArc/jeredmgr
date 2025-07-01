@@ -92,7 +92,7 @@ format_status() {  # args: $status, reads: none, sets: none
 # Utility: List available commands and their descriptions.
 list_commands() {  # args: none, reads: none, sets: none
 	echo -e "Usage: ${BOLD}$0${RESET} $(format_command "<command>") $(format_project "[project]") ${BOLD}[options]${RESET}"
-	echo ""
+	echo -e ""
 	format_header "# Available commands:"
 	echo -e "   $(format_command "help")                Show help"
 	echo -e "   $(format_command "add")                 Add a new (for now disabled) project (create its .env file)"
@@ -108,7 +108,7 @@ list_commands() {  # args: none, reads: none, sets: none
 	echo -e "   $(format_command "shell") $(format_project "<project>")     Open a shell in the project container"
 	echo -e "   $(format_command "update") $(format_project "[project]")    Update project(s) using git, with no project specified, self-update is run at first"
 	echo -e "   $(format_command "self-update")         Update manager script"
-	echo ""
+	echo -e ""
 	format_header "# Options and parameters:"
 	echo -e "   ${BOLD}-q${RESET}, ${BOLD}--quiet${RESET}                 Suppress prompts (for automation)"
 	echo -e "   ${BOLD}-f${RESET}, ${BOLD}--force${RESET}                 Force actions without confirmation prompts (use with caution)"
@@ -181,7 +181,7 @@ show_help() {  # args: none, reads: none, sets: none
 	echo -e "- Type '${BOLD}scripts${RESET}'"
 	echo -e "  Look for a $(format_path "uninstall.sh") script in the project path and run it"
 	echo -e ""
-	echo -e "- The project with its .env file isn't deleted, so it can be re-enabled again later"
+	echo -e "- The project with its $(format_path ".env") file isn't deleted, so it can be re-enabled again later"
 	echo -e ""
 	format_header "# When updating a project, JeredMgr will:"
 	echo -e ""
@@ -195,7 +195,7 @@ show_help() {  # args: none, reads: none, sets: none
 	echo -e ""
 	echo -e "- The provided project name can contain '${ITALIC}${DARKGREY}+${RESET}' as wildcard to match a single project"
 	echo -e ""
-	echo -e "- To select a sub directory from a git repository, provide it when creating the project or set the ${DARKGREY}SUBDIR${RESET} variable in the .env file"
+	echo -e "- To select a sub directory from a git repository, provide it when creating the project or set the ${DARKGREY}SUBDIR${RESET} variable in the $(format_path ".env") file"
 	echo -e "  The full repo will then be cloned into a subdirectory of JeredMgr's projects directory,"
 	echo -e "  and the project path will be set up as a link pointing to the sub directory."
 }
@@ -207,7 +207,7 @@ show_help() {  # args: none, reads: none, sets: none
 # Utility: check if git is installed, otherwise exit
 ensure_git_installed() {  # args: none, reads: none, sets: none
 	if ! command -v git >/dev/null 2>&1; then
-		echo "Error: git is not installed or not in PATH."
+		format_error "Error: git is not installed or not in PATH."
 		exit 1
 	fi
 }
@@ -220,7 +220,7 @@ check_git_path() {  # args: $gitdir, reads: none, sets: none
 	fi
 }
 
-# Utility: check whether upstream commit equals local commit without fetching
+# Utility: check whether upstream commit equals local commit without fetching (run in subshell, don't use format_ functions here!)
 check_git_upstream() {  # args: $path, reads: none, sets: none
 	local gitdir="$1"
 	local upstream_ref=$(git -C "$gitdir" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null) || { echo "No upstream configured" 1>&2; return 1; }
@@ -272,7 +272,7 @@ prompt_global_pat() {  # args: none, reads: none, sets: pat
 	global_pat=$(<"$GLOBAL_PAT_FILE")
 }
 
-# Utility: get full repository URL including possible PAT from plain URL without PAT
+# Utility: get full repository URL including possible PAT from plain URL without PAT (run in subshell, don't use format_ functions here!)
 get_repo_pat_url() {  # args: $repo_url $use_global_pat $local_pat, reads: $global_pat, sets: none
 	local repo_url="$1"
 	local use_global_pat="$2"
@@ -306,7 +306,7 @@ get_repo_pat_url() {  # args: $repo_url $use_global_pat $local_pat, reads: $glob
 }
 
 
-# Utility: read value from .env file
+# Utility: read value from .env file (run in subshell, don't use format_ functions here!)
 read_env_value() {  # args: $key, reads: env_file, sets: none
 	local key="$1"
 	grep "^${key}=" "$env_file" | cut -d'#' -f1 | cut -d'=' -f2
@@ -320,6 +320,7 @@ write_env_value() {  # args: $key $value, reads: $env_file, sets: none
 	grep -q "^${key}=" "$env_file" \
 		&& sed -i "s|^${key}=.*|${key}=${value}|" "$env_file" \
 		|| echo "${key}=${value}" >> "$env_file"
+	chmod 600 "$env_file"
 }
 
 # Utility: check project type
@@ -336,7 +337,7 @@ load_project_values() {  # args: $project_name, reads: none, sets: $project_name
 	project_name="$1"
 	env_file="$PROJECTS_DIR/$project_name.env"
 	if [ ! -f "$env_file" ]; then
-		echo "Project '$project_name' not found." 1>&2
+		format_error "Project '$(format_project "$project_name")' not found."
 		exit 1
 	fi
 
@@ -366,13 +367,13 @@ load_project_values() {  # args: $project_name, reads: none, sets: $project_name
 	# Check if docker is installed
 	if [ "$type" = "docker" ]; then
 		if ! command -v docker >/dev/null 2>&1; then
-			echo "Error: docker is not installed or not in PATH (needed for docker type project '$project_name')."
+			format_error "Error: docker is not installed or not in PATH (needed for docker type project '$(format_project "$project_name")')."
 			return 1
 		fi
 	fi
 }
 
-# Utility: generate compose file content
+# Utility: generate compose file content (run in subshell, don't use format_ functions here!)
 generate_compose_file_content() {  # args: none, reads: $project_name $path, sets: none
 	local dockerfile_contents=$(cat "$path/Dockerfile" 2>/dev/null)
 
@@ -408,30 +409,30 @@ select_compose_file() {  # args: none, reads: $project_name $path, sets: $compos
 	compose_file="$PROJECTS_DIR/$project_name.docker-compose.yml"
 	# If already a regular file itself (not a symlink), use it
 	if [ -f "$compose_file" ] && [ ! -L "$compose_file" ]; then
-		echo "Using compose file: $compose_file"
+		echo -e "Using compose file: $(format_path "$compose_file")"
 	fi
 	# Otherwise, try to find the best compose file to link to
 	if [ -f "$path/docker-compose.yml" ]; then
-		echo "Linking compose file: $path/docker-compose.yml"
+		echo -e "Linking compose file: $(format_path "$path/docker-compose.yml")"
 		ln -sf "$path/docker-compose.yml" "$compose_file"
 	elif [ -f "$path/docker-compose-default.yml" ]; then
-		echo "Linking compose file: $path/docker-compose-default.yml"
+		echo -e "Linking compose file: $(format_path "$path/docker-compose-default.yml")"
 		ln -sf "$path/docker-compose-default.yml" "$compose_file"
 	elif [ -f "$compose_file" ]; then
 		# Already exists as a link file
-		echo "Keeping linked compose file: $(readlink -f "$compose_file")"
+		echo -e "Keeping linked compose file: $(format_path "$(readlink -f "$compose_file")")"
 	elif [ -f "$path/Dockerfile" ]; then
 		# Generate a compose file in projects dir
-		echo "┌── GENERATING FILE: $compose_file ───"
+		echo -e "┌── GENERATING FILE: $(format_path "$compose_file") ───"
 		local compose_content=$(generate_compose_file_content)
 		echo -e "$compose_content" > "$compose_file"  # write to file
 		echo -e "$compose_content" | sed 's/^/│ /'
-		echo "└─── $compose_file ───────────────────"
-		echo "Using generated compose file: $compose_file"
+		echo -e "└─────────────────────────$(printf '─%.0s' $(seq 1 ${#compose_file}))"
+		echo -e "Using generated compose file: $(format_path "$compose_file")"
 	else
 		if ! $option_quiet && prompt_yes_no "No compose file or Dockerfile found. Generate a Dockerfile in $path?"; then
 			local dockerfile="$path/Dockerfile"
-			echo "┌── GENERATING FILE: $dockerfile ───"
+			echo -e "┌── GENERATING FILE: $(format_path "$dockerfile") ───"
 			local dockerfile_fullcontent=""
 			dockerfile_content+="FROM $DEFAULT_DOCKER_IMAGE\n"
 			dockerfile_content+="WORKDIR /usr/src/app\n"
@@ -468,7 +469,7 @@ select_compose_file() {  # args: none, reads: $project_name $path, sets: $compos
 			fi
 			dockerfile_fullcontent+="$dockerfile_content"
 			echo -e "$dockerfile_content"
-			echo "└─────────────────────────$(printf '─%.0s' $(seq 1 ${#dockerfile}))"
+			echo -e "└─────────────────────────$(printf '─%.0s' $(seq 1 ${#dockerfile}))"
 			if prompt_yes_no "Do you want to edit the Dockerfile?"; then  # ask first, so user can Ctrl-C out
 				echo -e "$dockerfile_fullcontent" > "$dockerfile"  # write to file
 				${EDITOR:-vi} "$dockerfile"
@@ -476,17 +477,17 @@ select_compose_file() {  # args: none, reads: $project_name $path, sets: $compos
 				echo -e "$dockerfile_fullcontent" > "$dockerfile"  # write to file
 			fi
 			# Now generate compose file
-			echo "┌── GENERATING FILE: $compose_file ───"
+			echo -e "┌── GENERATING FILE: $(format_path "$compose_file") ───"
 			local compose_content=$(generate_compose_file_content)
 			echo -e "$compose_content" | sed 's/^/│ /'
-			echo "└─────────────────────────$(printf '─%.0s' $(seq 1 ${#compose_file}))"
+			echo -e "└─────────────────────────$(printf '─%.0s' $(seq 1 ${#compose_file}))"
 			if prompt_yes_no "Do you want to edit the docker compose file?"; then  # ask first, so user can Ctrl-C out
 				echo -e "$compose_content" > "$compose_file"  # write to file
 				${EDITOR:-vi} "$compose_file"
 			else
 				echo -e "$compose_content" > "$compose_file"  # write to file
 			fi
-			echo "Using generated compose file: $compose_file"
+			echo -e "Using generated compose file: $(format_path "$compose_file")"
 		else
 			$option_quiet && echo "To generate a Dockerfile, run this command without -q."
 			compose_file=""
@@ -1013,7 +1014,7 @@ disable_project() {  # args: $project_name, reads: $env_file $type $path, sets: 
 	format_success "Successfully $($type_checked && echo "uninstalled and disabled" || echo "disabled") project '$(format_project "$project_name")'."
 }
 
-# Utility: Get the running status of a project: Yes, No, Unknown.
+# Utility: Get the running status of a project: Yes, No, Unknown. (run in subshell, don't use format_ functions here!)
 get_running_status() {  # args: none, reads: $type $path $project_name, sets: none
 	case "$type" in
 		docker)
