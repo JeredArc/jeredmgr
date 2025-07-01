@@ -1641,6 +1641,9 @@ if [ -n "$project_name" ] && [[ "$project_name" == *"+"* ]]; then
 fi
 
 case $command in
+	help)
+		show_help
+		;;
 	add)
 		add_project "$project_name" || exit_code=$?
 		;;
