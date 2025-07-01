@@ -44,7 +44,7 @@ fi
 
 # Utility: Format section headers
 format_header() {  # args: $text, reads: none, sets: none
-	echo -e "${BOLD}${BLUE}$1${RESET}"
+	echo -e "${BOLD}${BLUE}${1//${RESET}/${RESET}${BOLD}${BLUE}}${RESET}"
 }
 
 # Utility: Format command names
