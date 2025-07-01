@@ -583,7 +583,7 @@ prompt_yes_no() {  # args: $prompt, reads: none, sets: none
 	local prompt="$1"
 	while true; do
 		local yn
-		read -n 1 -p "$(echo -e "${YELLOW}${prompt}${RESET} (${BOLD}y${RESET}/${BOLD}n${RESET}): ")" yn
+		read -n 1 -p "$(echo -e "${ITALIC}${prompt}${RESET} (${BOLD}y${RESET}/${BOLD}n${RESET}): ")" yn
 		case $yn in
 			[Yy]*)
 				echo ""
@@ -669,8 +669,10 @@ run_script() {  # args: $script, reads: $path, sets: none
 confirm_all() {  # args: $verb, reads: none, sets: none
 	if $option_quiet; then return 0; fi
 	local verb="$1"
-	read -p "Are you sure you want to $verb ALL projects? (y/n): " confirm
-	[ "$confirm" = "y" ] || { echo "Cancelled."; exit 0; }
+	projects_list=$(ls -1 "$PROJECTS_DIR"/*.env)
+	count_projects=$(echo "$projects_list" | wc -l)
+	echo "There were $count_projects projects found: $projects_list"
+	prompt_yes_no "Are you sure you want to $verb ALL $count_projects projects?" || { echo "Cancelled."; exit 0; }
 }
 
 # Utility: loop through projects
