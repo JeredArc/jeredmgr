@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.30                                                  #
+# JeredMgr 1.0.31                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -62,7 +62,9 @@ format_project() {  # args: $project, reads: none, sets: none
 
 # Utility: Format paths
 format_path() {  # args: $path, reads: none, sets: none
-	echo -e "${UNDERLINE}${DARKGREY}${1//${RESET}/${RESET}${UNDERLINE}${DARKGREY}}${RESET}"
+	local path="$1"
+	path="${path/#$HOME/~}"  # Replace home directory with ~
+	echo -e "${UNDERLINE}${DARKGREY}${path//${RESET}/${RESET}${UNDERLINE}${DARKGREY}}${RESET}"
 }
 
 # Utility: Format success messages
