@@ -680,7 +680,7 @@ for_each_project() {  # args: $project_name $action, reads: none, sets: none
 		local env_file="${PROJECTS_DIR}/${project_name}.env"
 		if [ -f "$env_file" ]; then
 			if [ "$action" != "list" ]; then
-				echo -e "${BOLD}${BLUE}###   ${action^^} PROJECT:  $(format_project "$project_name")   ###${RESET}"
+				format_header "###   ${action^^} for project:  $(format_project "$project_name")   ###"
 			fi
 			${action}_project "$project_name" || all_success=false
 		else
@@ -695,7 +695,7 @@ for_each_project() {  # args: $project_name $action, reads: none, sets: none
 					echo -e "${DIM}----------------------------------------${RESET}"
 				fi
 				is_first=false
-				echo -e "${BOLD}${BLUE}###   ${action^^} PROJECT:  $(format_project "$project_name")   ###${RESET}"
+				format_header "###   ${action^^} for project:  $(format_project "$project_name")   ###"
 			fi
 			if [ ! -f "$env_file" ]; then
 				format_error "Invalid project file '$env_file'."
