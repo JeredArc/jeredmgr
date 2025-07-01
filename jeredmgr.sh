@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.33                                                  #
+# JeredMgr 1.0.34                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -1280,7 +1280,7 @@ status_project() {  # args: $project_name, reads: $enabled $type $path $project_
 	if check_git_path "$gitpath"; then
 		local error_msg=$(check_git_upstream "$gitpath" 2>&1)
 		if [ $? -eq 0 ]; then
-			format_success "Up to date!$([ $type = "docker" ] && echo " (There might be new docker images available though)")"
+			echo -e "${GREEN}Up to date!${RESET}$([ $type = "docker" ] && echo " (There might be new docker images available though)")"
 		else
 			format_warning "${error_msg:-Update available}"
 		fi
