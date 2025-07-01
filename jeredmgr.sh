@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.34                                                  #
+# JeredMgr 1.0.35                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -87,6 +87,8 @@ format_status() {  # args: $status, reads: none, sets: none
 	case "$1" in
 		"✓"|"Yes") echo -e "${GREEN}$1${RESET}" ;;
 		"✗"|"No") echo -e "${RED}$1${RESET}" ;;
+		"⚪") echo -e "${RED}$1${RESET}" ;;
+		"?") echo -e "${YELLOW}$1${RESET}" ;;
 		*) echo -e "${YELLOW}$1${RESET}" ;;
 	esac
 }
@@ -825,7 +827,20 @@ remove_project() {  # args: $project_name, reads: $env_file $project_name $enabl
 # Command: List a single project with its enabled status and path.
 list_project() {  # args: $project_name, reads: $enabled $project_name $path, sets: none
 	load_project_values "$1" || return 1
-	echo -e "$(format_status "$($enabled && echo "✓" || echo "✗")") $(format_project "$project_name"): $(format_path "$path")"
+	local statusicon
+	if $enabled; then
+		local running_status=$(get_running_status)
+		if [ "$running_status" = "Yes" ]; then
+			statusicon="✓"
+		elif [ "$running_status" = "No" ]; then
+			statusicon="⚪"
+		else
+			statusicon="?"
+		fi
+	else
+		statusicon="✗"
+	fi
+	echo -e "$(format_status "$statusicon") $(format_project "$project_name"): $(format_path "$path")"
 }
 
 # Utility: Run setup.sh if present and perform type-specific install/setup logic for the project.
