@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.32                                                  #
+# JeredMgr 1.0.33                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -69,17 +69,17 @@ format_path() {  # args: $path, reads: none, sets: none
 
 # Utility: Format success messages
 format_success() {  # args: $message, reads: none, sets: none
-	echo -e "${GREEN}${1//${RESET}/${RESET}${GREEN}}${RESET}"
+	echo -e "${GREEN}Success:${RESET} $1"
 }
 
 # Utility: Format error messages
 format_error() {  # args: $message, reads: none, sets: none
-	echo -e "${RED}${1//${RESET}/${RESET}${RED}}${RESET}"
+	echo -e "${RED}Error:${RESET} $1"
 }
 
 # Utility: Format warning messages
 format_warning() {  # args: $message, reads: none, sets: none
-	echo -e "${YELLOW}${1//${RESET}/${RESET}${YELLOW}}${RESET}"
+	echo -e "${YELLOW}Warning:${RESET} $1"
 }
 
 # Utility: Format status indicators
@@ -209,7 +209,7 @@ show_help() {  # args: none, reads: none, sets: none
 # Utility: check if git is installed, otherwise exit
 ensure_git_installed() {  # args: none, reads: none, sets: none
 	if ! command -v git >/dev/null 2>&1; then
-		format_error "Error: git is not installed or not in PATH."
+		format_error "git is not installed or not in PATH."
 		exit 1
 	fi
 }
@@ -369,7 +369,7 @@ load_project_values() {  # args: $project_name, reads: none, sets: $project_name
 	# Check if docker is installed
 	if [ "$type" = "docker" ]; then
 		if ! command -v docker >/dev/null 2>&1; then
-			format_error "Error: docker is not installed or not in PATH (needed for docker type project $(format_project "$project_name"))."
+			format_error "docker is not installed or not in PATH (needed for docker type project $(format_project "$project_name"))."
 			return 1
 		fi
 	fi
@@ -737,12 +737,12 @@ add_project() {  # args: $project_name, reads: none, sets: $project_name $env_fi
 	fi
 	# Validate project name format
 	if ! [[ "$project_name" =~ ^[a-z_][a-z_0-9]*$ ]]; then
-		format_error "Error: Project name must start with a lowercase letter or underscore and contain only lowercase letters, numbers, and underscores."
+		format_error "Project name must start with a lowercase letter or underscore and contain only lowercase letters, numbers, and underscores."
 		return 1
 	fi
 	env_file="${PROJECTS_DIR}/${project_name}.env"
 	if [ -f "$env_file" ]; then
-		format_error "Error: Project already exists."
+		format_error "Project already exists."
 		return 1
 	fi
 
@@ -811,11 +811,11 @@ remove_project() {  # args: $project_name, reads: $env_file $project_name $enabl
 			if [ -L "$path" ]; then
 				rm -f "$path"
 				mkdir -p "$path"
-				format_success "Removed symlink at $(format_path "$path") and created empty directory"
+				echo -e "Removed symlink at $(format_path "$path") and created empty directory"
 			fi
-			format_success "Removed git repository at $(format_path "$gitpath")"
+			echo -e "Removed git repository at $(format_path "$gitpath")"
 		else
-			echo "Git repository at $(format_path "$gitpath") kept for potential reuse."
+			echo -e "Git repository at $(format_path "$gitpath") kept for potential reuse."
 		fi
 	fi
 
@@ -1002,7 +1002,7 @@ disable_project() {  # args: $project_name, reads: $env_file $type $path, sets: 
 					echo "Stopping systemd service $(format_project "$project_name") ..."
 					systemctl stop "$project_name"
 					rm -f "$service_link"
-					format_success "Removed service file link $(format_path "$service_link")."
+					echo -e "Removed service file link $(format_path "$service_link")."
 				fi
 				echo "Reloading systemd daemon ..."
 				systemctl daemon-reload
@@ -1093,7 +1093,7 @@ start_project() {  # args: $project_name, reads: $enabled $type $path $project_n
 	esac
 
 	if ! $check_status; then
-		format_success "Project started $(format_project "$project_name")."
+		format_success "Project $(format_project "$project_name") started."
 		return
 	fi
 
@@ -1112,7 +1112,7 @@ start_project() {  # args: $project_name, reads: $enabled $type $path $project_n
 		((i++))
 	done
 	if [ "$running_status" = "No" ]; then
-		format_error "Failed to start project $(format_project "$project_name"), not running after $(((i - 1) * 100))ms timeout."
+		format_error "Failed to start project $(format_project "$project_name"), still not running after $(((i - 1) * 100))ms timeout."
 	else
 		format_warning "Running status unknown for project $(format_project "$project_name")."
 	fi
@@ -1160,7 +1160,7 @@ stop_project() {  # args: $project_name, reads: $type $path $project_name, sets:
 	esac
 
 	if ! $check_status; then
-		format_success "Project stopped $(format_project "$project_name")."
+		format_success "Project $(format_project "$project_name") stopped."
 		return
 	fi
 
@@ -1225,7 +1225,7 @@ restart_project() {  # args: $project_name, reads: $enabled $type $path $project
 			fi
 			;;
 	esac
-	format_success "Successfully restarted."
+	format_success "Successfully restarted project $(format_project "$project_name")."
 }
 
 # Command: Show the status of a project, including enabled/running state and git status.
@@ -1241,7 +1241,7 @@ status_project() {  # args: $project_name, reads: $enabled $type $path $project_
 			running_status=$(get_running_status)
 			echo -e "Running: $(format_status "$running_status")"
 			if ! check_compose_file; then
-				echo -e "Docker compose file: $(format_error "Not found")"
+				echo -e "Docker compose file: ${RED}Not found${RESET}"
 			else
 				echo -e "Docker compose file: $(format_path "$compose_file")$([ -L "$compose_file" ] && echo " (→ $(format_path "$(readlink -f "$compose_file")"))")"
 			fi
@@ -1250,7 +1250,7 @@ status_project() {  # args: $project_name, reads: $enabled $type $path $project_
 			running_status=$(get_running_status)
 			echo -e "Running: $(format_status "$running_status")"
 			if ! check_service_file; then
-				echo -e "Service file: $(format_error "Not found")"
+				echo -e "Service file: ${RED}Not found${RESET}"
 			else
 				echo -e "Service file: $(format_path "$service_file")$([ -L "$service_file" ] && echo " (→ $(format_path "$(readlink -f "$service_file")"))")"
 			fi
@@ -1280,7 +1280,7 @@ status_project() {  # args: $project_name, reads: $enabled $type $path $project_
 	if check_git_path "$gitpath"; then
 		local error_msg=$(check_git_upstream "$gitpath" 2>&1)
 		if [ $? -eq 0 ]; then
-			format_success "Up to date$([ $type = "docker" ] && echo " (There might be new docker images available though)")"
+			format_success "Up to date!$([ $type = "docker" ] && echo " (There might be new docker images available though)")"
 		else
 			format_warning "${error_msg:-Update available}"
 		fi
@@ -1429,11 +1429,11 @@ update_git_repo() {  # args: none, reads: $gitpath $repo_url $use_global_pat $lo
 		return 1
 	}
 	if ! [[ "$behind" =~ ^[0-9]+$ ]]; then
-		format_error "Invalid commit count"
+		format_error "Invalid commit count returned by git ($behind)"
 		return 1
 	fi
 	if [ "$behind" -eq 0 ]; then
-		format_success "$($is_manager_updating && echo "JeredMgr" || echo "Git repository") is up to date $($is_manager_updating && echo "($VERSION)")"
+		format_success "$($is_manager_updating && echo "JeredMgr" || echo "Git repository") is up to date$($is_manager_updating && echo " ($VERSION)")!"
 	else
 		echo "Updating $($is_manager_updating && echo "JeredMgr from $VERSION" || echo "git repository") ($behind commits behind) ..."
 		startprogress ""
@@ -1444,7 +1444,7 @@ update_git_repo() {  # args: none, reads: $gitpath $repo_url $use_global_pat $lo
 		}
 		local current_hash=$(git -C "$gitpath" rev-parse --short HEAD 2>/dev/null)
 		if $is_manager_updating; then
-			endprogress "$(format_success "Update complete from $previous_hash to $current_hash")"
+			endprogress "$(format_success "Self-update complete from $previous_hash to $current_hash")"
 		else
 			endprogress "$(format_success "Successfully updated git repository from $previous_hash to $current_hash")"
 		fi
@@ -1513,7 +1513,7 @@ update_project() {  # args: $project_name, reads: $path $repo_url $use_global_pa
 	fi
 
 	if ! run_install; then
-		format_error "Post-update install failed, skipping restart."
+		format_error "Post-update install failed. Skipping restart."
 		return 1
 	fi
 
@@ -1589,7 +1589,7 @@ while [[ $# -gt 0 ]]; do
 			elif [[ "$2" =~ ^[0-9]+$ ]]; then
 				parameter_lines="$2"
 			else
-				format_error "Error: Line count must be a number or 'f'/'follow'!"
+				format_error "Line count must be a number or 'f'/'follow'!"
 				exit 1
 			fi
 			shift 2
@@ -1649,7 +1649,7 @@ if [ -n "$project_name" ] && [[ "$project_name" == *"+"* ]]; then
 	elif [ $match_count -eq 1 ]; then
 		project_name="$matches"
 	else
-		format_error "Pattern '$project_name' is ambiguous. Matching projects:" 1>&2
+		format_error "Pattern '$project_name' is ambiguous. Multiple matching projects:" 1>&2
 		echo "$matches" 1>&2
 		exit 1
 	fi
