@@ -31,6 +31,7 @@ list_commands() {  # args: none, reads: none, sets: none
 	echo "   restart [project]   Restart enabled project(s)"
 	echo "   status [project]    Show status (enabled + running) and extended status with explicit project name"
 	echo "   logs <project>      Show logs for one project"
+	echo "   shell <project>     Open a shell in the project container (only for docker projects)"
 	echo "   update [project]    Update project(s) using git, with no project specified, self-update is run at first"
 	echo "   self-update         Update manager script"
 	echo ""
@@ -116,6 +117,13 @@ show_help() {  # args: none, reads: none, sets: none
 	echo "  - Update the project using git if it's a git repository"
 	echo "  - Pull new images from the docker repositories if it's a docker project"
 	echo ""
+	echo "# Further notes:"
+	echo ""
+	echo "- The provided project name can contain '+' as wildcard to match a single project"
+	echo ""
+	echo "- To select a sub directory from a git repository, provide it when creating the project or set the SUBDIR variable in the .env file"
+	echo "  The full repo will then be cloned into a subdirectory of JeredMgr's projects directory,"
+	echo "  and the project path will be set up as a link pointing to the sub directory."
 }
 
 ################################################################################
@@ -170,7 +178,21 @@ prompt_global_pat() {  # args: none, reads: none, sets: pat
 			return 1
 		else
 			read -p "Enter your global GitHub PAT: " pat
+			touch "$GLOBAL_PAT_FILE"
+			chmod 600 "$GLOBAL_PAT_FILE"
 			echo "$pat" > "$GLOBAL_PAT_FILE"
+		fi
+	else
+		# Check file permissions
+		local file_perms=$(stat -c "%a" "$GLOBAL_PAT_FILE")
+		if [ "$file_perms" != "600" ]; then
+			if $option_quiet; then
+				echo "Warning: Global PAT file has incorrect permissions ($file_perms instead of 600)!" 1>&2
+			else
+				if prompt_yes_no "Warning: Global PAT file has incorrect permissions ($file_perms instead of 600). Fix now?"; then
+					chmod 600 "$GLOBAL_PAT_FILE"
+				fi
+			fi
 		fi
 	fi
 	global_pat=$(<"$GLOBAL_PAT_FILE")
@@ -839,9 +861,18 @@ enable_project() {  # args: $project_name, reads: $env_file, sets: none
 		write_env_value "ENABLED" "false"
 		return 1
 	fi
-	write_env_value "ENABLED" "true"
-	echo "Successfully enabled project '$project_name'."
-	echo "You can now start it with '$0 start $project_name'."
+	if $enabled; then
+		echo "Install was called, as project '$project_name' is already enabled."
+	else
+		write_env_value "ENABLED" "true"
+		echo "Successfully installed and enabled project '$project_name'."
+	fi
+	if $enabled && [ "$(get_running_status)" = "Yes" ]; then
+		echo "Restarting project '$project_name' now."
+		restart_project "$project_name" || return 1
+	else
+		echo "You can now start it with '$0 start $project_name'."
+	fi
 }
 
 # Command: Disable and uninstall a project, performing type-specific cleanup and setting ENABLED=false.
@@ -1221,6 +1252,79 @@ logs_project() {  # args: $project_name, reads: $type $path $project_name $all_p
 	esac
 }
 
+# Command: Open a shell in the project container (docker only).
+shell_project() {  # args: $project_name, reads: $enabled $type $path $project_name, sets: none
+	load_project_values "$1" || return 1
+	if [ "$type" != "docker" ]; then
+		echo "Shell command is only available for docker projects."
+		return 1
+	fi
+	if ! $enabled; then
+		echo "Project is not enabled, cannot open shell."
+		return 1
+	fi
+	if ! check_compose_file; then
+		echo "No valid docker compose file found, cannot open shell."
+		return 1
+	fi
+
+	# Check if container is running
+	local running_status=$(get_running_status)
+	if [ "$running_status" != "Yes" ]; then
+		echo "Container is not running, cannot open shell."
+		return 1
+	fi
+
+	# Get all service names from docker-compose.yml
+	local services=$(docker compose -f "$compose_file" --project-directory "$path" ps --services)
+	if [ -z "$services" ]; then
+		echo "Could not determine service names from docker compose file."
+		return 1
+	fi
+
+	# Count number of services
+	local service_count=$(echo "$services" | wc -l)
+	
+	if [ "$service_count" -eq 1 ]; then
+		# If only one service, use it directly
+		local service_name="$services"
+	else
+		# If multiple services, allow user to select by prefix
+		if $option_quiet; then
+			echo "Multiple services found, using first one (run without -q next time to choose):"
+			echo "$services"
+			service_name=$(echo "$services" | head -n1)
+		else
+			echo "Multiple services found:"
+			echo "$services"
+			read -p "Enter (start of) service name: " prefix
+
+			# First check for exact match
+			local exact_match=$(echo "$services" | grep -x "$prefix")
+			if [ -n "$exact_match" ]; then
+				service_name="$prefix"
+			else
+				# If no exact match, look for prefix matches
+				local matches=$(echo "$services" | grep "^$prefix")
+				local match_count=$(echo "$matches" | wc -l)
+				
+				if [ -z "$matches" ]; then
+					echo "No services match '$prefix*'!"
+					return 1
+				elif [ "$match_count" -eq 1 ]; then
+					service_name="$matches"
+				else
+					echo "Provided service name is ambiguous!"
+					return 1
+				fi
+			fi
+		fi
+	fi
+
+	echo "Opening shell in container for service '$service_name' ..."
+	docker compose -f "$compose_file" --project-directory "$path" exec "$service_name" sh -l
+}
+
 is_manager_updating=false
 did_update=false
 # Command: Update the git repository for a project.
@@ -1442,6 +1546,28 @@ all_projects=$([ -z "$project_name" ] && echo "true" || echo "false")
 mkdir -p "$PROJECTS_DIR"
 ensure_git_installed
 
+# Handle wildcard matching if project_name contains +
+if [ -n "$project_name" ] && [[ "$project_name" == *"+"* ]]; then
+	# Convert + to .* for grep pattern
+	pattern=$(echo "$project_name" | sed 's/+/.*/g')
+	
+	# Find matching .env files
+	matches=$(find "$PROJECTS_DIR" -maxdepth 1 -name "*.env" | grep -E "/$pattern\.env$" | sed 's/.*\///;s/\.env$//')
+	
+	match_count=$(echo "$matches" | grep -c "^")
+	
+	if [ $match_count -eq 0 ]; then
+		echo "No projects match pattern '$project_name'" 1>&2
+		exit 1
+	elif [ $match_count -eq 1 ]; then
+		project_name="$matches"
+	else
+		echo "Pattern '$project_name' is ambiguous. Matching projects:" 1>&2
+		echo "$matches" 1>&2
+		exit 1
+	fi
+fi
+
 case $command in
 	add)
 		add_project "$project_name" || exit_code=$?
@@ -1478,6 +1604,10 @@ case $command in
 	logs)
 		if $all_projects; then confirm_all "show logs for"; fi
 		for_each_project "$project_name" "$command" || exit_code=$?
+		;;
+	shell)
+		if $all_projects; then echo "Please specify a project name." 1>&2; exit 1; fi
+		shell_project "$project_name" || exit_code=$?
 		;;
 	update)
 		if $all_projects; then
