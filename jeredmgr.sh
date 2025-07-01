@@ -669,7 +669,7 @@ run_script() {  # args: $script, reads: $path, sets: none
 confirm_all() {  # args: $verb, reads: none, sets: none
 	if $option_quiet; then return 0; fi
 	local verb="$1"
-	projects_list=$(ls -1 "$PROJECTS_DIR"/*.env)
+	projects_list=$(ls -1 "$PROJECTS_DIR"/*.env | xargs -n1 basename -s .env)
 	count_projects=$(echo "$projects_list" | wc -l)
 	echo "There were $count_projects projects found: $projects_list"
 	prompt_yes_no "Are you sure you want to $verb ALL $count_projects projects?" || { echo "Cancelled."; exit 0; }
