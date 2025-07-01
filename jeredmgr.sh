@@ -777,7 +777,7 @@ add_project() {  # args: $project_name, reads: none, sets: $project_name $env_fi
 	} > "$env_file"
 
 	format_success "Successfully added project '$(format_project "$project_name")'."
-	echo -e "You can now enable and install it with '${BOLD}$0 enable $project_name${RESET}'."
+	echo -e "You can now enable and install it with \`${BOLD}$0 enable $project_name${RESET}\`."
 }
 
 # Command: Remove a project by deleting the .env file.
@@ -947,7 +947,7 @@ enable_project() {  # args: $project_name, reads: $env_file, sets: none
 		echo "Restarting project '$(format_project "$project_name")' now."
 		restart_project "$project_name" || return 1
 	else
-		echo -e "You can now start it with '${BOLD}$0 start $project_name${RESET}'."
+		echo -e "You can now start it with \`${BOLD}$0 start $project_name${RESET}\`."
 	fi
 }
 
