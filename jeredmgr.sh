@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.54                                                  #
+# JeredMgr 1.0.55                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -366,6 +366,7 @@ load_project_values() {  # args: $project_name, reads: none, sets: $project_name
 	fi
 	local_pat=$(read_env_value "LOCAL_PAT")
 	path=$(read_env_value "PATH")
+	path="${path/#\~/$HOME}"  # Expand tilde to $HOME
 	type=$(read_env_value "TYPE")
 
 	# Initialize gitpath based on whether subdir is specified
