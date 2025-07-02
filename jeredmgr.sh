@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.59                                                  #
+# JeredMgr 1.0.60                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -706,7 +706,7 @@ add_project() {  # args: $project_name, reads: none, sets: $project_name $env_fi
 		repo=$project_name
 	fi
 	read -p "Subdirectory inside git repo (default: none): " subdir
-	prompt_yes_no "Use global GitHub PAT?" && use_global_pat=true || use_global_pat=false
+	[[ $(read -p "Use global GitHub PAT? (y/n, default: n): ") == [Yy]* ]] && use_global_pat=true || use_global_pat=false
 	local_pat=""
 	if ! $use_global_pat; then
 		read -p "Project-specific GitHub PAT (leave blank to use no PAT): " local_pat
