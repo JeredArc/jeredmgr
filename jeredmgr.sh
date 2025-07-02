@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.58                                                  #
+# JeredMgr 1.0.59                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -1612,7 +1612,7 @@ check_projects_arg() {  # args: $can_multiple $verb, reads: $project_name $optio
 			multiple_projects=true
 			if ! $option_quiet && [ -n "$verb" ] && [ "$project_name" != "+" ]; then  # if project_name is exactly +, we don't ask for confirmation, this is a shortcut
 				local total_projects=$(ls -1 "$PROJECTS_DIR"/*.env 2>/dev/null | wc -l)
-				echo "Found $count_matches matching projects (of $total_projects total): $projects_list"
+				echo "Found $count_matches matching projects (of $total_projects total): $(echo "$projects_list" | sed 's/$/,/' | tr '\n' ' ' | sed 's/, $//')"
 				prompt_yes_no "Are you sure you want to $verb these $count_matches projects?" || { echo "Cancelled."; exit 0; }
 			fi
 		fi
