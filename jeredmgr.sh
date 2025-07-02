@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.49                                                  #
+# JeredMgr 1.0.50                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -1446,9 +1446,9 @@ update_docker_images() {
 					return 1
 				}
 				if echo "$lastoutput" | grep -q "Status: Image is up to date"; then
-					endprogress "$(format_success "Already up to date")"
+					endprogress "${GREEN}Already up to date${RESET}"
 				else
-					endprogress "$(format_success "Updated successfully")"
+					endprogress "${GREEN}Updated successfully${RESET}"
 					((updated++))
 				fi
 				# Get dangling images for this image name
