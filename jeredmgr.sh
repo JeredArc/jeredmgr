@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.42                                                  #
+# JeredMgr 1.0.43                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -1478,11 +1478,10 @@ update_project() {  # args: $project_name, reads: $path $repo_url $use_global_pa
 	else
 		update_git_repo || return 1
 		update_docker_images || return 1
-	fi
-
-	if ! $did_git_update && ! $did_docker_update; then
-		echo "No updates were made, skipping restart."
-		return
+		if ! $did_git_update && ! $did_docker_update; then
+			echo "No updates were made, skipping restart."
+			return
+		fi
 	fi
 
 	if ! run_install; then
