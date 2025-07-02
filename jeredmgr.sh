@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.41                                                  #
+# JeredMgr 1.0.42                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -1373,10 +1373,10 @@ shell_project() {  # args: $project_name, reads: $enabled $type $path $project_n
 }
 
 is_manager_updating=false
-did_update=false
+did_git_update=false
 # Command: Update the git repository for a project.
 update_git_repo() {  # args: none, reads: $gitpath $repo_url $use_global_pat $local_pat, sets: none
-	did_update=false
+	did_git_update=false
 	if ! check_git_path "$gitpath"; then
 		format_warning "Path is not a git repository, skipping git repository update."
 		return
@@ -1413,14 +1413,16 @@ update_git_repo() {  # args: none, reads: $gitpath $repo_url $use_global_pat $lo
 		else
 			endprogress "$(format_success "Successfully updated git repository from $previous_hash to $current_hash")"
 		fi
-		did_update=true
+		did_git_update=true
 	fi
 }
 
 dangling_docker_images=""
 dangling_docker_hashes=""
+did_docker_update=false
 # Utility: Update docker images if the project is a docker project.
 update_docker_images() {
+	did_docker_update=false
 	if [ $type = "docker" ] && check_compose_file; then
 		# pull images separately to track whether something was updated instead of `docker compose pull`
 		local config_output=$(docker compose -f "$compose_file" --project-directory "$path" config 2>/dev/null) || {
@@ -1459,6 +1461,7 @@ update_docker_images() {
 			fi
 			if [ $updated -ne 0 ]; then
 				format_success "Successfully updated $updated docker image(s)."
+				did_docker_update=true
 			else
 				format_success "All docker images already up to date."
 			fi
@@ -1475,6 +1478,11 @@ update_project() {  # args: $project_name, reads: $path $repo_url $use_global_pa
 	else
 		update_git_repo || return 1
 		update_docker_images || return 1
+	fi
+
+	if ! $did_git_update && ! $did_docker_update; then
+		echo "No updates were made, skipping restart."
+		return
 	fi
 
 	if ! run_install; then
@@ -1506,7 +1514,7 @@ self_update() {  # args: none, reads: none, sets: none
 	update_git_repo || { format_error "Failed to update JeredMgr."; return 1; }
 	is_manager_updating=false
 
-	if $did_update; then
+	if $did_git_update; then
 		chmod +x "$0"
 		echo "Restarting JeredMgr ..."
 		"$0" "${original_args[@]}" --internal-recursive
