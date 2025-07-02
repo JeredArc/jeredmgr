@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.47                                                  #
+# JeredMgr 1.0.48                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -1532,7 +1532,7 @@ for_each_project() {  # args: $action, reads: $project_name $projects_list $mult
 
 	local action_upper=$(echo "$action" | tr '[:lower:]' '[:upper:]')
 	if ! $multiple_projects; then
-		format_header "###   ${action_upper} selected project:  $(format_project "$project_name")   ###"
+		format_header "###   ${action_upper} single project:  $(format_project "$project_name")   ###"
 		${action}_project "$project_name" || all_success=false
 	else
 		if [ "$action" = "list" ]; then
@@ -1545,7 +1545,7 @@ for_each_project() {  # args: $action, reads: $project_name $projects_list $mult
 					echo -e "${DIM}----------------------------------------${RESET}"
 				fi
 				is_first=false
-				format_header "###   ${action_upper} project:  $(format_project "$project_name")   ###"
+				format_header "###   ${action_upper} $(! $all_projects && echo "selected ")project:  $(format_project "$project_name")   ###"
 			fi
 			${action}_project "$project_name" || all_success=false
 		done <<< "$projects_list"
