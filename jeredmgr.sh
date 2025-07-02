@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.50                                                  #
+# JeredMgr 1.0.51                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -220,6 +220,9 @@ ensure_git_installed() {  # args: none, reads: none, sets: none
 # Utility: return whether git is available in supplied path
 check_git_path() {  # args: $gitdir, reads: none, sets: none
 	local gitdir="$1"
+	if [ ! -d "$gitdir" ]; then
+		return 1
+	fi
 	if ! git -C "$gitdir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 		return 1
 	fi
