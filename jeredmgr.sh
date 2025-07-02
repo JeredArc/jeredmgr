@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.48                                                  #
+# JeredMgr 1.0.49                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -629,10 +629,10 @@ showprogress() {   # args: $command $args..., reads: none, sets: $lastoutput
 	lastoutput=""
 	local prevlen=0
 
-    local fifo=$(mktemp -u)
-    mkfifo "$fifo"
-    "$@" &> "$fifo" &  # in background
-    local cmd_pid=$!
+	local fifo=$(mktemp -u)
+	mkfifo "$fifo"
+	"$@" &> "$fifo" &  # in background
+	local cmd_pid=$!
 
 	while IFS= read -r line; do
 		curlen=${#line}
@@ -1451,12 +1451,21 @@ update_docker_images() {
 					endprogress "$(format_success "Updated successfully")"
 					((updated++))
 				fi
-                new_dangling+="$(docker images --format "  - {{.Repository}}:{{.Tag}} {{.ID}}" --filter "dangling=true" --filter "reference=${image%:*}")"$'\n'
-				new_dangling_hashes+="$(docker images --format "{{.ID}}" --filter "dangling=true" --filter "reference=${image%:*}") "
+				# Get dangling images for this image name
+				local dangling_info=$(docker images --format "  - {{.Repository}}:{{.Tag}} {{.ID}}" --filter "dangling=true" --filter "reference=${image%:*}")
+				local dangling_hash=$(docker images --format "{{.ID}}" --filter "dangling=true" --filter "reference=${image%:*}")
+				if [ -n "$dangling_info" ]; then
+					[ -n "$new_dangling" ] && new_dangling+=$'\n'
+					new_dangling+="$dangling_info"
+					[ -n "$new_dangling_hashes" ] && new_dangling_hashes+=" "
+					new_dangling_hashes+="$dangling_hash"
+				fi
 			done <<< "$images"
 			if [ -n "$new_dangling_hashes" ]; then
 				echo "Obsolete (dangling) images will be listed at the end of the update(s)."
-				dangling_docker_images+="# $project_name:\n$new_dangling"
+				[ -n "$dangling_docker_images" ] && dangling_docker_images+=$'\n'
+				dangling_docker_images+="Project $(format_project "$project_name"):"$'\n'"$new_dangling"
+				[ -n "$dangling_docker_hashes" ] && dangling_docker_hashes+=" "
 				dangling_docker_hashes+="$new_dangling_hashes"
 			fi
 			if [ $updated -ne 0 ]; then
@@ -1740,7 +1749,7 @@ case $command in
 		;;
 	update)
 		if [ -z "$project_name" ] || [ "$project_name" = "+" ]; then  # First update manager script
-            ! $option_internal_recursive && format_header "###   SELF-UPDATE   ###"
+			! $option_internal_recursive && format_header "###   SELF-UPDATE   ###"
 			self_update || exit_code=$?
 			echo -e "${DIM}----------------------------------------${RESET}"
 		fi
