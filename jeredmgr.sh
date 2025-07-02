@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.53                                                  #
+# JeredMgr 1.0.54                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -229,6 +229,8 @@ check_git_path() {  # args: $gitdir, reads: none, sets: none
 		echo "Git path is not a git repository, returning 1"
 		return 1
 	fi
+	echo "Git path is a git repository, returning 0"
+	return 0
 }
 
 # Utility: check whether upstream commit equals local commit without fetching (run in subshell, don't use format_ functions here!)
