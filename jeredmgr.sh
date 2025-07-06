@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.61                                                  #
+# JeredMgr 1.0.62                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -61,6 +61,11 @@ format_project() {  # args: $project, reads: none, sets: none
 	echo -e "${BOLD}${MAGENTA}${1//${RESET}/${RESET}${BOLD}${MAGENTA}}${RESET}"
 }
 
+# Utility: Format options and parameters
+format_option() {  # args: $option, reads: none, sets: none
+	echo -e "${BOLD}${YELLOW}${1//${RESET}/${RESET}${BOLD}${YELLOW}}${RESET}"
+}
+
 # Utility: Format paths
 format_path() {  # args: $path, reads: none, sets: none
 	local path="$1"
@@ -100,8 +105,8 @@ list_commands() {  # args: none, reads: none, sets: none
 	echo -e ""
 	format_header "# Available commands:"
 	echo -e "   $(format_command "help")                Show help"
-	echo -e "   $(format_command "add")                 Add a new (for now disabled) project (create its .env file)"
-	echo -e "   $(format_command "remove")              Remove a project (check for it being disabled, then delete its .env file)"
+	echo -e "   $(format_command "add")                 Add a new (for now disabled) project (create its $(format_path ".env") file)"
+	echo -e "   $(format_command "remove")              Remove a project (check for it being disabled, then delete its $(format_path ".env") file)"
 	echo -e "   $(format_command "list")                List all projects"
 	echo -e "   $(format_command "enable") $(format_project "[project]")    Install and enable project(s), run again to re-install"
 	echo -e "   $(format_command "disable") $(format_project "[project]")   Disable and uninstall project(s)"
@@ -110,15 +115,23 @@ list_commands() {  # args: none, reads: none, sets: none
 	echo -e "   $(format_command "restart") $(format_project "[project]")   Restart enabled project(s)"
 	echo -e "   $(format_command "status") $(format_project "[project]")    Show status (enabled + running) and extended status with explicit project name"
 	echo -e "   $(format_command "logs") $(format_project "<project>")      Show logs for one project"
+	echo -e "   $(format_command "path") $(format_project "<project>")      Get project's path (useful with ${BOLD}\`cd \$(jm path <project>)\`${RESET})"
+	echo -e "   $(format_command "config") $(format_project "<project>")    Get project's config ($(format_path ".env")) file path (useful with ${BOLD}\`less \$(jm config <project>)\`${RESET})"
+	echo -e "   $(format_command "file") $(format_project "<project>")      Get project's $(format_path "docker-compose.yml") or $(format_path "<project-name>.service") file path (useful with ${BOLD}\`less \$(jm file <project>)\`${RESET})"
 	echo -e "   $(format_command "shell") $(format_project "<project>")     Open a shell in the project container"
 	echo -e "   $(format_command "update") $(format_project "[project]")    Update project(s) using git, with no project specified, self-update is run at first"
 	echo -e "   $(format_command "self-update")         Update manager script"
 	echo -e ""
-	format_header "# Options and parameters:"
-	echo -e "   ${BOLD}-q${RESET}, ${BOLD}--quiet${RESET}                 Suppress prompts (for automation)"
-	echo -e "   ${BOLD}-f${RESET}, ${BOLD}--force${RESET}                 Force actions without confirmation prompts (use with caution)"
-	echo -e "   ${BOLD}-s${RESET}, ${BOLD}--no-status-check${RESET}       Don't retry checking status after starting or stopping a project"
-	echo -e "   ${BOLD}-n${RESET}, ${BOLD}--number-of-lines <N>${RESET}   Show N log lines or use 'f' (follow) for 'logs' command (default: follow / for all projects $LOG_LINES)"
+	format_header "# Project specification:j"
+	echo -e "   - A project name can contain '${ITALIC}${DARKGRAY}+${RESET}' as wildcard for matching projects"
+	echo -e "   - If no project name is provided (select all projects) or the wildcard matches multiple projects, a prompt will ask for confirmation"
+	echo -e "   - If the special project name '${ITALIC}${DARKGRAY}+${RESET}' is used, the command will be for all projects without confirmation"
+	echo -e ""
+	format_header "# Options and parameters:j"
+	echo -e "   $(format_option "-q"), $(format_option "--quiet")                 Suppress prompts (for automation)"
+	echo -e "   $(format_option "-f"), $(format_option "--force")                 Force actions without confirmation prompts (use with caution)"
+	echo -e "   $(format_option "-s"), $(format_option "--no-status-check")       Don't retry checking status after starting or stopping a project"
+	echo -e "   $(format_option "-n"), $(format_option "--number-of-lines <N>")   Show ${ITALIC}${DARKGRAY}N${RESET} log lines or use ${ITALIC}${DARKGRAY}'f'${RESET} (follow) for $(format_command "logs") command (default: follow / for all projects $LOG_LINES)"
 }
 
 # Command: Print detailed help and workflow information for JeredMgr.
@@ -198,8 +211,6 @@ show_help() {  # args: none, reads: none, sets: none
 	echo -e ""
 	format_header "# Further notes:"
 	echo -e ""
-	echo -e "- The provided project name can contain '${ITALIC}${DARKGRAY}+${RESET}' as wildcard to match a single project"
-	echo -e ""
 	echo -e "- To select a sub directory from a git repository, provide it when creating the project or set the ${DARKGRAY}SUBDIR${RESET} variable in the $(format_path ".env") file"
 	echo -e "  The full repo will then be cloned into a subdirectory of JeredMgr's projects directory,"
 	echo -e "  and the project path will be set up as a link pointing to the sub directory."
@@ -254,7 +265,7 @@ check_git_upstream() {  # args: $path, reads: none, sets: none
 prompt_global_pat() {  # args: none, reads: none, sets: pat
 	if [ ! -f "$GLOBAL_PAT_FILE" ] || [ ! -s "$GLOBAL_PAT_FILE" ]; then
 		if $option_quiet; then
-			echo "Please run once without -q to provide a global GitHub PAT." 1>&2
+			echo "Please run once without $(format_option "-q")/$(format_option "--quiet") to provide a global GitHub PAT." 1>&2
 			return 1
 		else
 			read -p "Enter your global GitHub PAT: " pat
@@ -496,7 +507,7 @@ select_compose_file() {  # args: none, reads: $project_name $path, sets: $compos
 			fi
 			echo -e "Using generated compose file: $(format_path "$compose_file")"
 		else
-			$option_quiet && echo "To generate a Dockerfile, run this command without -q."
+			$option_quiet && echo "To generate a Dockerfile, run this command without $(format_option "-q")/$(format_option "--quiet")."
 			compose_file=""
 			return 1
 		fi
@@ -568,7 +579,7 @@ select_service_file() {  # args: none, reads: $project_name $path, sets: $servic
 			echo "Linking service file: $servicefile"
 			ln -sf "$servicefile" "$service_file"
 		else
-			$option_quiet && echo "To generate a service file, run this command without -q."
+			$option_quiet && echo "To generate a service file, run this command without $(format_option "-q")/$(format_option "--quiet")."
 			service_file=""
 			return 1
 		fi
@@ -678,11 +689,11 @@ run_script() {  # args: $script, reads: $path, sets: none
 ################################################################################
 
 # Command: Add a new project by prompting the user and creating a .env file.
-add_project() {  # args: $project_name, reads: none, sets: $project_name $env_file $owner $repo $use_global_pat $local_pat $path $type $repo_url $repo_pat_url
+command_add {  # args: $project_name, reads: none, sets: $project_name $env_file $owner $repo $use_global_pat $local_pat $path $type $repo_url $repo_pat_url
 	local project_name="$1"
 
 	if $option_quiet; then
-		format_error "Command 'add' cannot be called with --quiet."
+		format_error "Command 'add' cannot be called with $(format_option "-q")/$(format_option "--quiet")."
 		return 1
 	fi
 
@@ -742,7 +753,7 @@ add_project() {  # args: $project_name, reads: none, sets: $project_name $env_fi
 }
 
 # Command: Remove a project by deleting the .env file.
-remove_project() {  # args: $project_name, reads: $env_file $project_name $enabled $gitpath $subdir $path, sets: $env_file
+command_remove {  # args: $project_name, reads: $env_file $project_name $enabled $gitpath $subdir $path, sets: $env_file
 	load_project_values "$1" || return 1
 	if $enabled; then
 		format_error "Project $(format_project "$project_name") is enabled, please disable it first."
@@ -778,7 +789,7 @@ remove_project() {  # args: $project_name, reads: $env_file $project_name $enabl
 }
 
 # Command: List a single project with its enabled status and path.
-list_project() {  # args: $project_name, reads: $enabled $project_name $path, sets: none
+command_list {  # args: $project_name, reads: $enabled $project_name $path, sets: none
 	load_project_values "$1" || return 1
 	local statusicon
 	if $enabled; then
@@ -904,7 +915,7 @@ run_install() {  # args: none, reads: $repo_url $use_global_pat $local_pat $path
 }
 
 # Command: Enable a project by running install/setup and setting ENABLED=true in the .env file.
-enable_project() {  # args: $project_name, reads: $env_file, sets: none
+command_enable {  # args: $project_name, reads: $env_file, sets: none
 	load_project_values "$1" || return 1
 	if ! run_install; then
 		format_error "Install failed with project $(format_project "$project_name"), $($enabled && echo "disabling project" || echo "project remains disabled")"
@@ -919,14 +930,14 @@ enable_project() {  # args: $project_name, reads: $env_file, sets: none
 	fi
 	if $enabled && [ "$(get_running_status)" = "Yes" ]; then
 		echo "Restarting project $(format_project "$project_name") now."
-		restart_project "$project_name" || return 1
+		command_restart "$project_name" || return 1
 	else
 		echo -e "You can now start it with \`${BOLD}$SCRIPT_NAME start $project_name${RESET}\`."
 	fi
 }
 
 # Command: Disable and uninstall a project, performing type-specific cleanup and setting ENABLED=false.
-disable_project() {  # args: $project_name, reads: $env_file $type $path, sets: none
+command_disable {  # args: $project_name, reads: $env_file $type $path, sets: none
 	load_project_values "$1" || return 1
 	if ! $enabled; then
 		format_warning "Already disabled, skipping."
@@ -1017,7 +1028,7 @@ get_running_status() {  # args: none, reads: $type $path $project_name, sets: no
 
 
 # Command: Start a project if enabled, using the appropriate method for its type.
-start_project() {  # args: $project_name, reads: $enabled $type $path $project_name, sets: none
+command_start {  # args: $project_name, reads: $enabled $type $path $project_name, sets: none
 	load_project_values "$1" || return 1
 	if ! $enabled; then
 		format_warning "Not enabled, skipping start."
@@ -1088,7 +1099,7 @@ start_project() {  # args: $project_name, reads: $enabled $type $path $project_n
 }
 
 # Command: Stop a project using the appropriate method for its type.
-stop_project() {  # args: $project_name, reads: $type $path $project_name, sets: none
+command_stop {  # args: $project_name, reads: $type $path $project_name, sets: none
 	load_project_values "$1" || return 1
 	if ! $type_checked; then
 		format_warning "Unknown or unsupported type '$type', skipping stop."
@@ -1155,7 +1166,7 @@ stop_project() {  # args: $project_name, reads: $type $path $project_name, sets:
 }
 
 # Command: Restart a project if enabled, using the appropriate method for its type.
-restart_project() {  # args: $project_name, reads: $enabled $type $path $project_name, sets: none
+command_restart {  # args: $project_name, reads: $enabled $type $path $project_name, sets: none
 	load_project_values "$1" || return 1
 	if ! $enabled; then
 		format_warning "Not enabled, skipping restart."
@@ -1197,7 +1208,7 @@ restart_project() {  # args: $project_name, reads: $enabled $type $path $project
 }
 
 # Command: Show the status of a project, including enabled/running state and git status.
-status_project() {  # args: $project_name, reads: $enabled $type $path $project_name $repo_url $use_global_pat $local_pat $all_projects $gitpath, sets: none
+command_status {  # args: $project_name, reads: $enabled $type $path $project_name $repo_url $use_global_pat $local_pat $all_projects $gitpath, sets: none
 	load_project_values "$1" || return 1
 	echo -e "Enabled: $(format_status "$($enabled && echo "✓" || echo "✗")")"
 	if ! $type_checked; then
@@ -1270,7 +1281,7 @@ status_project() {  # args: $project_name, reads: $enabled $type $path $project_
 }
 
 # Command: Show logs for a project using the appropriate method for its type.
-logs_project() {  # args: $project_name, reads: $type $path $project_name $all_projects $parameter_lines, sets: none
+command_logs {  # args: $project_name, reads: $type $path $project_name $all_projects $parameter_lines, sets: none
 	load_project_values "$1" || return 1
 	if ! $type_checked; then
 		format_warning "Unknown or unsupported type '$type', skipping logs."
@@ -1302,8 +1313,56 @@ logs_project() {  # args: $project_name, reads: $type $path $project_name $all_p
 	esac
 }
 
+# Command: Output the project's path
+command_path {  # args: $project_name, reads: $path, sets: none
+	load_project_values "$1" || return 1
+	echo "$path"
+}
+
+# Command: Output the project's config file path
+command_config {  # args: $project_name, reads: $env_file, sets: none
+	load_project_values "$1" || return 1
+	echo "$env_file"
+}
+
+# Command: Output the project's docker-compose/service file path
+command_file {  # args: $project_name, reads: $compose_file $service_file, sets: none
+	load_project_values "$1" || return 1
+	if ! $type_checked; then
+		format_error "Unknown or unsupported type '$type'."
+		return 1
+	fi
+	case "$type" in
+		docker)
+			if ! check_compose_file; then
+				format_error "No valid docker compose file found for project $(format_project "$project_name"), cannot get file path."
+				return 1
+			fi
+			echo "$compose_file"
+			;;
+		service)
+			if ! check_service_file; then
+				format_error "No valid service file found for project $(format_project "$project_name"), cannot get file path."
+				return 1
+			fi
+			echo "$service_file"
+			;;
+		scripts)
+			if [ -f "$path/docker-compose.yml" ]; then
+				echo "$path/docker-compose.yml"
+			elif [ -f "$path/service.sh" ]; then
+				echo "$path/service.sh"
+			else
+				format_error "'scripts' type project $(format_project "$project_name") seems to have neither $(format_path "docker-compose.yml") nor $(format_path "service.sh") file."
+				return 1
+			fi
+			;;
+	esac
+
+}
+
 # Command: Open a shell in the project container (docker only).
-shell_project() {  # args: $project_name, reads: $enabled $type $path $project_name, sets: none
+command_shell {  # args: $project_name, reads: $enabled $type $path $project_name, sets: none
 	load_project_values "$1" || return 1
 	if [ "$type" != "docker" ]; then
 		format_error "Shell command is only available for docker projects."
@@ -1341,7 +1400,7 @@ shell_project() {  # args: $project_name, reads: $enabled $type $path $project_n
 	else
 		# If multiple services, allow user to select by prefix
 		if $option_quiet; then
-			echo "Multiple services found, using first one (run without -q next time to choose):"
+			echo "Multiple services found, using first one (run without $(format_option "-q")/$(format_option "--quiet") next time to choose):"
 			echo "$services"
 			service_name=$(echo "$services" | head -n1)
 		else
@@ -1482,7 +1541,7 @@ update_docker_images() {
 }
 
 # Command: Update a project by pulling from git, running install/setup, and restarting if successful.
-update_project() {  # args: $project_name, reads: $path $repo_url $use_global_pat $local_pat $project_name, sets: none
+command_update {  # args: $project_name, reads: $path $repo_url $use_global_pat $local_pat $project_name, sets: none
 	load_project_values "$1" || return 1
 
 	if [ -f "$path/update.sh" ]; then
@@ -1505,7 +1564,7 @@ update_project() {  # args: $project_name, reads: $path $repo_url $use_global_pa
 	format_success "Update complete."
 	if [ "$(get_running_status)" = "Yes" ]; then
 		echo "Restarting project after update ..."
-		restart_project "$project_name" || return 1
+		command_restart "$project_name" || return 1
 	else
 		echo "Project is not running, skipping restart."
 	fi
@@ -1545,7 +1604,7 @@ for_each_project() {  # args: $action, reads: $project_name $projects_list $mult
 	local action_upper=$(echo "$action" | tr '[:lower:]' '[:upper:]')
 	if ! $multiple_projects; then
 		format_header "###   ${action_upper} single project:  $(format_project "$project_name")   ###"
-		${action}_project "$project_name" || all_success=false
+		command_${action} "$project_name" || all_success=false
 	else
 		if [ "$action" = "list" ]; then
 			format_header "###   LIST $($all_projects && echo "all" || echo "selected") $(echo "$projects_list" | wc -l) projects   ###"
@@ -1559,7 +1618,7 @@ for_each_project() {  # args: $action, reads: $project_name $projects_list $mult
 				is_first=false
 				format_header "###   ${action_upper} $(! $all_projects && echo "selected ")project:  $(format_project "$project_name")   ###"
 			fi
-			${action}_project "$project_name" || all_success=false
+			command_${action} "$project_name" || all_success=false
 		done <<< "$projects_list"
 	fi
 	if ! $all_success; then return 1; fi
@@ -1570,12 +1629,7 @@ check_projects_arg() {  # args: $can_multiple $verb, reads: $project_name $optio
 	local can_multiple="$1"
 	local verb="$2"  # can be empty, then no confirmation is asked
 
-	# Reset global variables
-	all_projects=false
-	multiple_projects=false
-	projects_list=""
-
-	if [ -z "$project_name" ]; then  # If no project name given, handle all projects case
+	if [ -z "$project_name" ] || [ "$project_name" = "+" ]; then  # If no project name given or exactly +, handle all projects case
 		all_projects=true
 		multiple_projects=true
 		# Get all project names
@@ -1589,7 +1643,7 @@ check_projects_arg() {  # args: $can_multiple $verb, reads: $project_name $optio
 			format_error "Please specify a project name!"
 			exit 1
 		fi
-		if ! $option_quiet && [ -n "$verb" ]; then
+		if ! $option_quiet && [ -n "$verb" ] && [ "$project_name" != "+" ]; then  # if project_name is exactly +, we don't ask for confirmation, this is a shortcut
 			echo "Found $count_projects projects: $(echo "$projects_list" | sed 's/$/,/' | tr '\n' ' ' | sed 's/, $//')"
 			prompt_yes_no "Are you sure you want to $verb ALL $count_projects projects?" || { echo "Cancelled."; exit 0; }
 		fi
@@ -1611,7 +1665,7 @@ check_projects_arg() {  # args: $can_multiple $verb, reads: $project_name $optio
 				exit 1
 			fi
 			multiple_projects=true
-			if ! $option_quiet && [ -n "$verb" ] && [ "$project_name" != "+" ]; then  # if project_name is exactly +, we don't ask for confirmation, this is a shortcut
+			if ! $option_quiet && [ -n "$verb" ]; then
 				local total_projects=$(ls -1 "$PROJECTS_DIR"/*.env 2>/dev/null | wc -l)
 				echo "Found $count_matches matching projects (of $total_projects total): $(echo "$projects_list" | sed 's/$/,/' | tr '\n' ' ' | sed 's/, $//')"
 				prompt_yes_no "Are you sure you want to $verb these $count_matches projects?" || { echo "Cancelled."; exit 0; }
@@ -1639,6 +1693,10 @@ option_force=false
 option_no_status_check=false
 option_internal_recursive=false
 parameter_lines="f"
+
+all_projects=false
+multiple_projects=false
+projects_list=""
 
 exit_code=0
 
@@ -1707,12 +1765,12 @@ ensure_git_installed
 
 case $command in
 	add)
-		# project name is optional on the command line, otherwise add_project will prompt for it
-		add_project "$project_name" || exit_code=$?
+		# project name is optional on the command line, otherwise command_add will prompt for it
+		command_add "$project_name" || exit_code=$?
 		;;
 	remove)
 		# remove should need the full project name without wildcard, so we won't use check_projects_arg
-		remove_project "$project_name" || exit_code=$?
+		for_each_project "remove" || exit_code=$?
 		;;
 	list)
 		check_projects_arg true "" || exit 1
@@ -1745,6 +1803,18 @@ case $command in
 	logs)
 		check_projects_arg true "show logs for" || exit 1
 		for_each_project "logs" || exit_code=$?
+		;;
+	path)
+		check_projects_arg false "get path of" || exit 1
+		command_path "$project_name" || exit_code=$?  # run directly to avoid printing headers
+		;;
+	config)
+		check_projects_arg false "get config file of" || exit 1
+		command_config "$project_name" || exit_code=$?  # run directly to avoid printing headers
+		;;
+	file)
+		check_projects_arg false "get docker-compose/service file of" || exit 1
+		command_file "$project_name" || exit_code=$?  # run directly to avoid printing headers
 		;;
 	shell)
 		check_projects_arg false "open shell for" || exit 1
