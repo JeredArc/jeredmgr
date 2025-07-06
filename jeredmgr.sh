@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.71                                                  #
+# JeredMgr 1.0.72                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -1850,7 +1850,7 @@ case $command in
 			! $option_quiet && prompt_yes_no "Do you want to remove them now?" && docker rmi -f $dangling_docker_hashes || echo "You can remove them later using ${BOLD}${DARKGRAY}\`docker rmi -f ${dangling_docker_hashes% }\`${RESET}"
 		fi
 		;;
-	self-update)
+	sup | self-update)
 		command_selfupdate || exit_code=$?
 		;;
 	*)
