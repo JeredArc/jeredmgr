@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.67                                                  #
+# JeredMgr 1.0.68                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -105,7 +105,7 @@ format_status() {  # args: $status, reads: none, sets: none
 
 # Utility: List available commands and their descriptions.
 list_commands() {  # args: none, reads: none, sets: none
-	echo -e "Usage: ${BOLD}$SCRIPT_NAME${RESET} $(format_command "<command>") $(format_project "[project]") ${BOLD}[options]${RESET}"
+	echo -e "Usage: ${BOLD}$SCRIPT_NAME${RESET} $(format_command "<command>") $(format_project "[project]") $(format_option "[options]")"
 	echo -e ""
 	format_header "# Available commands:"
 	echo -e "   $(format_command "help")                Show help"
