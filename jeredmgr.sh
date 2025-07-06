@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.73                                                  #
+# JeredMgr 1.0.74                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -124,7 +124,7 @@ list_commands() {  # args: none, reads: none, sets: none
 	echo -e "   $(format_command "file") $(format_project "<project>")      Get project's $(format_path "docker-compose.yml") or $(format_path "<project-name>.service") file path (useful with ${BOLD}\`less \$(jm file <project>)\`${RESET})"
 	echo -e "   $(format_command "shell") $(format_project "<project>")     Open a shell in the project container"
 	echo -e "   $(format_command "update") $(format_project "[project]")    Update project(s) using git. With all projects, self-update is run at first. If you don't want that, use ${ITALIC}${DARKGRAY}'++'${RESET} as project name."
-	echo -e "   $(format_command "self-update")         Update manager script"
+	echo -e "   $(format_command "self-update") | $(format_command "sup")   Update manager script"
 	echo -e ""
 	format_header "# Project specification:j"
 	echo -e "   - A project name can contain ${ITALIC}${DARKGRAY}'+'${RESET} as wildcard for matching projects"
