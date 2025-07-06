@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.70                                                  #
+# JeredMgr 1.0.71                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -1766,7 +1766,7 @@ done
 if [ -z "$command" ]; then
 	echo "Welcome to JeredMgr $VERSION!"
 	list_commands
-	exit 1
+	exit 0
 fi
 
 if [ "$command" = "help" ]; then
@@ -1855,6 +1855,7 @@ case $command in
 		;;
 	*)
 		format_error "Unknown command: '$command'!"
+		echo ""
 		list_commands
 		exit 1
 		;;
