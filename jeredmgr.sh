@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.69                                                  #
+# JeredMgr 1.0.70                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -136,7 +136,7 @@ list_commands() {  # args: none, reads: none, sets: none
 	echo -e "   $(format_option "-f"), $(format_option "--force")                 Force actions without confirmation prompts (use with caution)"
 	echo -e "   $(format_option "-s"), $(format_option "--no-status-check")       Don't retry checking status after starting or stopping a project"
 	echo -e "   $(format_option "-r"), $(format_option "--no-restart")            Don't restart project(s) after updating"
-	echo -e "   $(format_option "-n"), $(format_option "--number-of-lines") ${ITALIC}${DARKGRAY}<N>${RESET}   Show ${ITALIC}${DARKGRAY}N${RESET} log lines or use ${ITALIC}${DARKGRAY}'f'${RESET} (follow) for $(format_command "logs") command (default: follow / for all projects $LOG_LINES)"
+	echo -e "   $(format_option "-n"), $(format_option "--number-of-lines") ${ITALIC}${DARKGRAY}<n>${RESET}   Show ${ITALIC}${DARKGRAY}n${RESET} log lines or use ${ITALIC}${DARKGRAY}'f'${RESET} (follow) for $(format_command "logs") command (default: follow / for all projects $LOG_LINES)"
 }
 
 # Command: Print detailed help and workflow information for JeredMgr.
