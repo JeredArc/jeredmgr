@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.66                                                  #
+# JeredMgr 1.0.67                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -67,7 +67,7 @@ format_project() {  # args: $project, reads: none, sets: none
 
 # Utility: Format options and parameters
 format_option() {  # args: $option, reads: none, sets: none
-	echo -e "${BOLD}${BRIGHTMAGENTA}${1//${RESET}/${RESET}${BOLD}${BRIGHTMAGENTA}}${RESET}"
+	echo -e "${BOLD}${ITALIC}${MAGENTA}${1//${RESET}/${RESET}${BOLD}${ITALIC}${MAGENTA}}${RESET}"
 }
 
 # Utility: Format paths
