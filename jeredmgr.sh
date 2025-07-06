@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.62                                                  #
+# JeredMgr 1.0.63                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -689,11 +689,11 @@ run_script() {  # args: $script, reads: $path, sets: none
 ################################################################################
 
 # Command: Add a new project by prompting the user and creating a .env file.
-command_add {  # args: $project_name, reads: none, sets: $project_name $env_file $owner $repo $use_global_pat $local_pat $path $type $repo_url $repo_pat_url
+command_add() {  # args: $project_name, reads: none, sets: $project_name $env_file $owner $repo $use_global_pat $local_pat $path $type $repo_url $repo_pat_url
 	local project_name="$1"
 
 	if $option_quiet; then
-		format_error "Command 'add' cannot be called with $(format_option "-q")/$(format_option "--quiet")."
+		format_error "Command $(format_command "add") cannot be called with $(format_option "-q")/$(format_option "--quiet")."
 		return 1
 	fi
 
@@ -753,7 +753,7 @@ command_add {  # args: $project_name, reads: none, sets: $project_name $env_file
 }
 
 # Command: Remove a project by deleting the .env file.
-command_remove {  # args: $project_name, reads: $env_file $project_name $enabled $gitpath $subdir $path, sets: $env_file
+command_remove() {  # args: $project_name, reads: $env_file $project_name $enabled $gitpath $subdir $path, sets: $env_file
 	load_project_values "$1" || return 1
 	if $enabled; then
 		format_error "Project $(format_project "$project_name") is enabled, please disable it first."
@@ -789,7 +789,7 @@ command_remove {  # args: $project_name, reads: $env_file $project_name $enabled
 }
 
 # Command: List a single project with its enabled status and path.
-command_list {  # args: $project_name, reads: $enabled $project_name $path, sets: none
+command_list() {  # args: $project_name, reads: $enabled $project_name $path, sets: none
 	load_project_values "$1" || return 1
 	local statusicon
 	if $enabled; then
@@ -915,7 +915,7 @@ run_install() {  # args: none, reads: $repo_url $use_global_pat $local_pat $path
 }
 
 # Command: Enable a project by running install/setup and setting ENABLED=true in the .env file.
-command_enable {  # args: $project_name, reads: $env_file, sets: none
+command_enable() {  # args: $project_name, reads: $env_file, sets: none
 	load_project_values "$1" || return 1
 	if ! run_install; then
 		format_error "Install failed with project $(format_project "$project_name"), $($enabled && echo "disabling project" || echo "project remains disabled")"
@@ -937,7 +937,7 @@ command_enable {  # args: $project_name, reads: $env_file, sets: none
 }
 
 # Command: Disable and uninstall a project, performing type-specific cleanup and setting ENABLED=false.
-command_disable {  # args: $project_name, reads: $env_file $type $path, sets: none
+command_disable() {  # args: $project_name, reads: $env_file $type $path, sets: none
 	load_project_values "$1" || return 1
 	if ! $enabled; then
 		format_warning "Already disabled, skipping."
@@ -1028,7 +1028,7 @@ get_running_status() {  # args: none, reads: $type $path $project_name, sets: no
 
 
 # Command: Start a project if enabled, using the appropriate method for its type.
-command_start {  # args: $project_name, reads: $enabled $type $path $project_name, sets: none
+command_start() {  # args: $project_name, reads: $enabled $type $path $project_name, sets: none
 	load_project_values "$1" || return 1
 	if ! $enabled; then
 		format_warning "Not enabled, skipping start."
@@ -1099,7 +1099,7 @@ command_start {  # args: $project_name, reads: $enabled $type $path $project_nam
 }
 
 # Command: Stop a project using the appropriate method for its type.
-command_stop {  # args: $project_name, reads: $type $path $project_name, sets: none
+command_stop() {  # args: $project_name, reads: $type $path $project_name, sets: none
 	load_project_values "$1" || return 1
 	if ! $type_checked; then
 		format_warning "Unknown or unsupported type '$type', skipping stop."
@@ -1166,7 +1166,7 @@ command_stop {  # args: $project_name, reads: $type $path $project_name, sets: n
 }
 
 # Command: Restart a project if enabled, using the appropriate method for its type.
-command_restart {  # args: $project_name, reads: $enabled $type $path $project_name, sets: none
+command_restart() {  # args: $project_name, reads: $enabled $type $path $project_name, sets: none
 	load_project_values "$1" || return 1
 	if ! $enabled; then
 		format_warning "Not enabled, skipping restart."
@@ -1208,7 +1208,7 @@ command_restart {  # args: $project_name, reads: $enabled $type $path $project_n
 }
 
 # Command: Show the status of a project, including enabled/running state and git status.
-command_status {  # args: $project_name, reads: $enabled $type $path $project_name $repo_url $use_global_pat $local_pat $all_projects $gitpath, sets: none
+command_status() {  # args: $project_name, reads: $enabled $type $path $project_name $repo_url $use_global_pat $local_pat $all_projects $gitpath, sets: none
 	load_project_values "$1" || return 1
 	echo -e "Enabled: $(format_status "$($enabled && echo "✓" || echo "✗")")"
 	if ! $type_checked; then
@@ -1281,7 +1281,7 @@ command_status {  # args: $project_name, reads: $enabled $type $path $project_na
 }
 
 # Command: Show logs for a project using the appropriate method for its type.
-command_logs {  # args: $project_name, reads: $type $path $project_name $all_projects $parameter_lines, sets: none
+command_logs() {  # args: $project_name, reads: $type $path $project_name $all_projects $parameter_lines, sets: none
 	load_project_values "$1" || return 1
 	if ! $type_checked; then
 		format_warning "Unknown or unsupported type '$type', skipping logs."
@@ -1314,19 +1314,19 @@ command_logs {  # args: $project_name, reads: $type $path $project_name $all_pro
 }
 
 # Command: Output the project's path
-command_path {  # args: $project_name, reads: $path, sets: none
+command_path() {  # args: $project_name, reads: $path, sets: none
 	load_project_values "$1" || return 1
 	echo "$path"
 }
 
 # Command: Output the project's config file path
-command_config {  # args: $project_name, reads: $env_file, sets: none
+command_config() {  # args: $project_name, reads: $env_file, sets: none
 	load_project_values "$1" || return 1
 	echo "$env_file"
 }
 
 # Command: Output the project's docker-compose/service file path
-command_file {  # args: $project_name, reads: $compose_file $service_file, sets: none
+command_file() {  # args: $project_name, reads: $compose_file $service_file, sets: none
 	load_project_values "$1" || return 1
 	if ! $type_checked; then
 		format_error "Unknown or unsupported type '$type'."
@@ -1362,7 +1362,7 @@ command_file {  # args: $project_name, reads: $compose_file $service_file, sets:
 }
 
 # Command: Open a shell in the project container (docker only).
-command_shell {  # args: $project_name, reads: $enabled $type $path $project_name, sets: none
+command_shell() {  # args: $project_name, reads: $enabled $type $path $project_name, sets: none
 	load_project_values "$1" || return 1
 	if [ "$type" != "docker" ]; then
 		format_error "Shell command is only available for docker projects."
@@ -1541,7 +1541,7 @@ update_docker_images() {
 }
 
 # Command: Update a project by pulling from git, running install/setup, and restarting if successful.
-command_update {  # args: $project_name, reads: $path $repo_url $use_global_pat $local_pat $project_name, sets: none
+command_update() {  # args: $project_name, reads: $path $repo_url $use_global_pat $local_pat $project_name, sets: none
 	load_project_values "$1" || return 1
 
 	if [ -f "$path/update.sh" ]; then
