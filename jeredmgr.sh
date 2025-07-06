@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.63                                                  #
+# JeredMgr 1.0.64                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -119,18 +119,19 @@ list_commands() {  # args: none, reads: none, sets: none
 	echo -e "   $(format_command "config") $(format_project "<project>")    Get project's config ($(format_path ".env")) file path (useful with ${BOLD}\`less \$(jm config <project>)\`${RESET})"
 	echo -e "   $(format_command "file") $(format_project "<project>")      Get project's $(format_path "docker-compose.yml") or $(format_path "<project-name>.service") file path (useful with ${BOLD}\`less \$(jm file <project>)\`${RESET})"
 	echo -e "   $(format_command "shell") $(format_project "<project>")     Open a shell in the project container"
-	echo -e "   $(format_command "update") $(format_project "[project]")    Update project(s) using git, with no project specified, self-update is run at first"
+	echo -e "   $(format_command "update") $(format_project "[project]")    Update project(s) using git. With all projects, self-update is run at first. If you don't want that, use ${ITALIC}${DARKGRAY}'++'${RESET} as project name."
 	echo -e "   $(format_command "self-update")         Update manager script"
 	echo -e ""
 	format_header "# Project specification:j"
-	echo -e "   - A project name can contain '${ITALIC}${DARKGRAY}+${RESET}' as wildcard for matching projects"
+	echo -e "   - A project name can contain ${ITALIC}${DARKGRAY}'+'${RESET} as wildcard for matching projects"
 	echo -e "   - If no project name is provided (select all projects) or the wildcard matches multiple projects, a prompt will ask for confirmation"
-	echo -e "   - If the special project name '${ITALIC}${DARKGRAY}+${RESET}' is used, the command will be for all projects without confirmation"
+	echo -e "   - If the special project name ${ITALIC}${DARKGRAY}'+'${RESET} is used, the command will be for all projects without confirmation"
 	echo -e ""
 	format_header "# Options and parameters:j"
 	echo -e "   $(format_option "-q"), $(format_option "--quiet")                 Suppress prompts (for automation)"
 	echo -e "   $(format_option "-f"), $(format_option "--force")                 Force actions without confirmation prompts (use with caution)"
 	echo -e "   $(format_option "-s"), $(format_option "--no-status-check")       Don't retry checking status after starting or stopping a project"
+	echo -e "   $(format_option "-r"), $(format_option "--no-restart")            Don't restart project(s) after updating"
 	echo -e "   $(format_option "-n"), $(format_option "--number-of-lines <N>")   Show ${ITALIC}${DARKGRAY}N${RESET} log lines or use ${ITALIC}${DARKGRAY}'f'${RESET} (follow) for $(format_command "logs") command (default: follow / for all projects $LOG_LINES)"
 }
 
@@ -1550,7 +1551,7 @@ command_update() {  # args: $project_name, reads: $path $repo_url $use_global_pa
 		update_git_repo || return 1
 		update_docker_images || return 1
 		if ! $did_git_update && ! $did_docker_update; then
-			echo "No updates were made, skipping restart."
+			echo "No updates were made, skipping install and restart."
 			return
 		fi
 	fi
@@ -1562,6 +1563,10 @@ command_update() {  # args: $project_name, reads: $path $repo_url $use_global_pa
 
 	echo ""
 	format_success "Update complete."
+	if $option_no_restart; then
+		echo "Skipping restart because $(format_option "-r")/$(format_option "--no-restart") was used."
+		return 0
+	fi
 	if [ "$(get_running_status)" = "Yes" ]; then
 		echo "Restarting project after update ..."
 		command_restart "$project_name" || return 1
@@ -1571,7 +1576,7 @@ command_update() {  # args: $project_name, reads: $path $repo_url $use_global_pa
 }
 
 # Command: Update the manager script itself from the remote repository.
-self_update() {  # args: none, reads: none, sets: none
+command_selfupdate() {  # args: none, reads: none, sets: none
 	if $option_internal_recursive; then
 		format_success "Successfully updated JeredMgr to $VERSION."
 		return
@@ -1691,6 +1696,7 @@ project_name=""
 option_quiet=false
 option_force=false
 option_no_status_check=false
+option_no_restart=false
 option_internal_recursive=false
 parameter_lines="f"
 
@@ -1712,6 +1718,10 @@ while [[ $# -gt 0 ]]; do
 			;;
 		-s|--no-status-check)
 			option_no_status_check=true
+			shift
+			;;
+		-r|--no-restart)
+			option_no_restart=true
 			shift
 			;;
 		-n|--number-of-lines)
@@ -1823,7 +1833,7 @@ case $command in
 	update)
 		if [ -z "$project_name" ] || [ "$project_name" = "+" ]; then  # First update manager script
 			! $option_internal_recursive && format_header "###   SELF-UPDATE   ###"
-			self_update || exit_code=$?
+			command_selfupdate || exit_code=$?
 			echo -e "${DIM}----------------------------------------${RESET}"
 		fi
 		check_projects_arg true "update" || exit 1
@@ -1837,7 +1847,7 @@ case $command in
 		fi
 		;;
 	self-update)
-		self_update || exit_code=$?
+		command_selfupdate || exit_code=$?
 		;;
 	*)
 		format_error "Unknown command: '$command'!"
