@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.72                                                  #
+# JeredMgr 1.0.73                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -1764,7 +1764,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$command" ]; then
-	echo "Welcome to JeredMgr $VERSION!"
+	echo "Welcome to JeredMgr ${BOLD}${GREEN}$VERSION${RESET}!"
 	list_commands
 	exit 0
 fi
