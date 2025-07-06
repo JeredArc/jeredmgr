@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.65                                                  #
+# JeredMgr 1.0.66                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -32,6 +32,7 @@ if [ -t 1 ]; then  # Only use colors when outputting to terminal
 	RESET="${ESC}[0m"
 	DARKGRAY="${ESC}[90m"
 	BRIGHTCYAN="${ESC}[96m"
+	BRIGHTMAGENTA="${ESC}[95m"
 else  # No colors when piping
 	BOLD=""
 	DIM=""
@@ -46,6 +47,7 @@ else  # No colors when piping
 	RESET=""
 	DARKGRAY=""
 	BRIGHTCYAN=""
+	BRIGHTMAGENTA=""
 fi
 
 # Utility: Format section headers
@@ -65,7 +67,7 @@ format_project() {  # args: $project, reads: none, sets: none
 
 # Utility: Format options and parameters
 format_option() {  # args: $option, reads: none, sets: none
-	echo -e "${BOLD}${BRIGHTCYAN}${1//${RESET}/${RESET}${BOLD}${BRIGHTCYAN}}${RESET}"
+	echo -e "${BOLD}${BRIGHTMAGENTA}${1//${RESET}/${RESET}${BOLD}${BRIGHTMAGENTA}}${RESET}"
 }
 
 # Utility: Format paths
