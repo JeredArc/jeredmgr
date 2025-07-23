@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.75                                                  #
+# JeredMgr 1.0.76                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -595,7 +595,7 @@ select_service_file() {  # args: none, reads: $project_name $path, sets: $servic
 check_service_file() {  # args: none, reads: $project_name, sets: $service_file
 	service_file="$PROJECTS_DIR/$project_name.service"
 	service_link="/etc/systemd/system/$project_name.service"
-	if [ ! -f "$service_file" ] || [ "$(readlink -f "$service_link")" != "$service_file" ]; then
+	if [ ! -f "$service_file" ] || [ "$(readlink "$service_link")" != "$service_file" ]; then
 		return 1
 	fi
 }
