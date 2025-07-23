@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.74                                                  #
+# JeredMgr 1.0.75                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -167,7 +167,7 @@ show_help() {  # args: none, reads: none, sets: none
 	echo -e "   - A $(format_path "default.service") file in the project path"
 	echo -e "   - A valid $(format_path "<project-name>.service") link file in the projects directory"
 	echo -e "   - Otherwise offer to create a $(format_path "<project-name>.service") file in the projects directory"
-	echo -e "   - A link to the $(format_path "<project-name>.service") file will be created in $(format_path "/etc/systemd/system/")"
+	echo -e "   A link to the $(format_path "<project-name>.service") file will be created in $(format_path "/etc/systemd/system/")"
 	echo -e ""
 	format_header "# When running a project, JeredMgr will:"
 	echo -e ""
@@ -535,9 +535,9 @@ select_service_file() {  # args: none, reads: $project_name $path, sets: $servic
 		echo "Using service file: $service_file"
 	fi
 	# Otherwise, try to find the best service file to link to
-	if [ -f "$PROJECTS_DIR/$project_name.service" ]; then
-		echo "Linking service file: $PROJECTS_DIR/$project_name.service"
-		ln -sf "$PROJECTS_DIR/$project_name.service" "$service_file"
+	if [ -f "$path/$project_name.service" ]; then
+		echo "Linking service file: $path/$project_name.service"
+		ln -sf "$path/$project_name.service" "$service_file"
 	elif [ -f "$path/default.service" ]; then
 		echo "Linking service file: $path/default.service"
 		ln -sf "$path/default.service" "$service_file"
