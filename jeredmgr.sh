@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.76                                                  #
+# JeredMgr 1.0.77                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -897,7 +897,7 @@ run_install() {  # args: none, reads: $repo_url $use_global_pat $local_pat $path
 			fi
 
 			service_link="/etc/systemd/system/$project_name.service"
-			if [ -f "$service_link" ] && [ "$(readlink -f "$service_link")" != "$service_file" ]; then
+			if [ -f "$service_link" ] && [ "$(readlink "$service_link")" != "$service_file" ]; then
 				format_error "A service file already exists at $(format_path "$service_link"), cannot install $(format_project "$project_name")."
 				return 1
 			fi
