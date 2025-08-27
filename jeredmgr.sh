@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.77                                                  #
+# JeredMgr 1.0.78                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -717,16 +717,26 @@ command_add() {  # args: $project_name, reads: none, sets: $project_name $env_fi
 	fi
 
 	read -p "GitHub owner: " owner
-	read -p "GitHub repository name (default: $project_name): " repo
-	if [ -z "$repo" ]; then
-		repo=$project_name
-	fi
-	read -p "Subdirectory inside git repo (default: none): " subdir
-	read -p "Use global GitHub PAT? (y/n, default: n): " use_global_pat
-	[[ $use_global_pat == [Yy]* ]] && use_global_pat=true || use_global_pat=false
-	local_pat=""
-	if ! $use_global_pat; then
-		read -p "Project-specific GitHub PAT (leave blank to use no PAT): " local_pat
+	if [ -z "$owner" ]; then
+		echo "Project will not have a GitHub repository."
+		repo=""
+		subdir=""
+		local_pat=""
+		use_global_pat=false
+		repo_url=""
+	else
+		read -p "GitHub repository name (default: $project_name): " repo
+		if [ -z "$repo" ]; then
+			repo=$project_name
+		fi
+		read -p "Subdirectory inside git repo (default: none): " subdir
+		read -p "Use global GitHub PAT? (y/n, default: n): " use_global_pat
+		[[ $use_global_pat == [Yy]* ]] && use_global_pat=true || use_global_pat=false
+		local_pat=""
+		if ! $use_global_pat; then
+			read -p "Project-specific GitHub PAT (leave blank to use no PAT): " local_pat
+		fi
+		repo_url="https://github.com/${owner}/${repo}.git"
 	fi
 	local default_path="$original_dir"
 	if ! [[ "$original_dir" == *"/$project_name" ]]; then default_path+="/$project_name"; fi
@@ -740,8 +750,6 @@ command_add() {  # args: $project_name, reads: none, sets: $project_name $env_fi
 		read -p "$([ -n "$type" ] && echo "Invalid type '$type', try again" || echo "Project type") (docker/service/scripts): " type
 		check_project_type
 	done
-
-	repo_url="https://github.com/${owner}/${repo}.git"
 
 	{
 		echo "ENABLED=false"
@@ -820,56 +828,59 @@ run_install() {  # args: none, reads: $repo_url $use_global_pat $local_pat $path
 		return 1
 	fi
 
-
-	if [ -n "$subdir" ]; then  # Subdir mode: full repo is inside projects dir
-		# Check if we need to move an existing git repo
-		if [ ! -d "$gitpath" ] && [ -d "$path" ] && check_git_path "$path"; then
-			# If project is enabled, require disable first
-			if $enabled; then
-				format_error "Found existing git repository at $(format_path "$path"), cannot move to $(format_path "$gitpath") while project is enabled, please disable it first."
-				return 1
+	if [ -z "$repo_url" ]; then
+		echo "Project has no git repository, skipping clone."
+	else
+		if [ -n "$subdir" ]; then  # Subdir mode: full repo is inside projects dir
+			# Check if we need to move an existing git repo
+			if [ ! -d "$gitpath" ] && [ -d "$path" ] && check_git_path "$path"; then
+				# If project is enabled, require disable first
+				if $enabled; then
+					format_error "Found existing git repository at $(format_path "$path"), cannot move to $(format_path "$gitpath") while project is enabled, please disable it first."
+					return 1
+				fi
+				echo "Found existing git repository at $(format_path "$path"), moving to $(format_path "$gitpath") ..."
+				mkdir -p "$(dirname "$gitpath")"
+				mv "$path" "$gitpath" || { format_error "Failed to move git repository."; return 1; }
 			fi
-			echo "Found existing git repository at $(format_path "$path"), moving to $(format_path "$gitpath") ..."
-			mkdir -p "$(dirname "$gitpath")"
-			mv "$path" "$gitpath" || { format_error "Failed to move git repository."; return 1; }
 		fi
-	fi
 
-	# Create or verify gitpath (for both subdir and non-subdir mode)
-	if [ ! -d "$gitpath" ] || [ -z "$(ls -A "$gitpath" 2>/dev/null)" ]; then
-		repo_pat_url=$(get_repo_pat_url "$repo_url" "$use_global_pat" "$local_pat") || { echo "Could not get repository PAT URL." 1>&2; return 1; }
-		echo "Cloning $repo_url $([ "$repo_url" != "$repo_pat_url" ] && echo "using PAT") into $(format_path "$gitpath") ..."
-		mkdir -p "$(dirname "$gitpath")"
-		git clone "$repo_pat_url" "$gitpath" || { format_error "Clone failed. Check credentials and repository access."; return 1; }
-	elif ! check_git_path "$gitpath"; then
-		format_error "Directory $(format_path "$gitpath") exists but is not a git repository."
-		return 1
-	fi
-
-	if [ -n "$subdir" ]; then  # Subdir mode: full repo is inside projects dir
-		# Verify subdir exists in the repository
-		if [ ! -d "$gitpath/$subdir" ]; then
-			format_error "Specified subdirectory $(format_path "$subdir") not found in repository at $(format_path "$gitpath")."
+		# Create or verify gitpath (for both subdir and non-subdir mode)
+		if [ ! -d "$gitpath" ] || [ -z "$(ls -A "$gitpath" 2>/dev/null)" ]; then
+			repo_pat_url=$(get_repo_pat_url "$repo_url" "$use_global_pat" "$local_pat") || { echo "Could not get repository PAT URL." 1>&2; return 1; }
+			echo "Cloning $repo_url $([ "$repo_url" != "$repo_pat_url" ] && echo "using PAT") into $(format_path "$gitpath") ..."
+			mkdir -p "$(dirname "$gitpath")"
+			git clone "$repo_pat_url" "$gitpath" || { format_error "Clone failed. Check credentials and repository access."; return 1; }
+		elif ! check_git_path "$gitpath"; then
+			format_error "Directory $(format_path "$gitpath") exists but is not a git repository."
 			return 1
 		fi
 
-		# Create or update symlink
-		if [ -L "$path" ]; then
-			local current_target=$(readlink -f "$path")
-			local expected_target=$(readlink -f "$gitpath/$subdir")
-			if [ "$current_target" != "$expected_target" ]; then
-				echo "Fixing symlink $(format_path "$path") to point to $(format_path "$gitpath/$subdir")"
-				rm "$path"
-				ln -sf "$gitpath/$subdir" "$path"
-			fi
-		else
-			if [ -d "$path" ]; then
-				format_error "Path $(format_path "$path") exists but is not a symlink, cannot link to specified repo subdir."
+		if [ -n "$subdir" ]; then  # Subdir mode: full repo is inside projects dir
+			# Verify subdir exists in the repository
+			if [ ! -d "$gitpath/$subdir" ]; then
+				format_error "Specified subdirectory $(format_path "$subdir") not found in repository at $(format_path "$gitpath")."
 				return 1
 			fi
-			echo "Creating symlink from $(format_path "$path") to $(format_path "$gitpath/$subdir")"
-			mkdir -p "$(dirname "$path")"
-			ln -sf "$gitpath/$subdir" "$path"
+
+			# Create or update symlink
+			if [ -L "$path" ]; then
+				local current_target=$(readlink -f "$path")
+				local expected_target=$(readlink -f "$gitpath/$subdir")
+				if [ "$current_target" != "$expected_target" ]; then
+					echo "Fixing symlink $(format_path "$path") to point to $(format_path "$gitpath/$subdir")"
+					rm "$path"
+					ln -sf "$gitpath/$subdir" "$path"
+				fi
+			else
+				if [ -d "$path" ]; then
+					format_error "Path $(format_path "$path") exists but is not a symlink, cannot link to specified repo subdir."
+					return 1
+				fi
+				echo "Creating symlink from $(format_path "$path") to $(format_path "$gitpath/$subdir")"
+				mkdir -p "$(dirname "$path")"
+				ln -sf "$gitpath/$subdir" "$path"
+			fi
 		fi
 	fi
 
