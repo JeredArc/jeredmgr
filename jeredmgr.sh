@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.79                                                  #
+# JeredMgr 1.0.80                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -325,6 +325,19 @@ get_repo_pat_url() {  # args: $repo_url $use_global_pat $local_pat, reads: $glob
 		# No global PAT, local PAT is empty, assume either public repo or git-globally configured authentication
 		echo "$repo_url"
 	fi  
+}
+
+# Utility: set origin URL (with x-access-token PAT when configured, so git pull works outside JeredMgr too)
+sync_git_origin_url() {  # args: [$origin_url], reads: $gitpath $repo_url $use_global_pat $local_pat, sets: none
+	local origin_url="$1"
+	if [ -z "$repo_url" ]; then return 0; fi
+	git -C "$gitpath" remote get-url origin >/dev/null 2>&1 || return 0
+	if [ -z "$origin_url" ]; then
+		if ! origin_url=$(get_repo_pat_url "$repo_url" "$use_global_pat" "$local_pat"); then
+			origin_url="$repo_url"
+		fi
+	fi
+	git -C "$gitpath" remote set-url origin "$origin_url"
 }
 
 
@@ -855,6 +868,7 @@ run_install() {  # args: none, reads: $repo_url $use_global_pat $local_pat $path
 			format_error "Directory $(format_path "$gitpath") exists but is not a git repository."
 			return 1
 		fi
+		sync_git_origin_url
 
 		if [ -n "$subdir" ]; then  # Subdir mode: full repo is inside projects dir
 			# Verify subdir exists in the repository
@@ -1459,18 +1473,13 @@ update_git_repo() {  # args: none, reads: $gitpath $repo_url $use_global_pat $lo
 		format_warning "Path is not a git repository, skipping git repository update."
 		return
 	fi
-	repo_pat_url=$(get_repo_pat_url "$repo_url" "$use_global_pat" "$local_pat")
+	repo_pat_url=$(get_repo_pat_url "$repo_url" "$use_global_pat" "$local_pat") || { format_error "Could not get repository PAT URL."; return 1; }
+	sync_git_origin_url "$repo_pat_url"
 	echo "Fetching updates ..."
 	local previous_hash=$(git -C "$gitpath" rev-parse --short HEAD 2>/dev/null)
 	local local_branch=$(git -C "$gitpath" rev-parse --abbrev-ref HEAD 2>/dev/null)
 	local upstream_ref=$(git -C "$gitpath" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null) || { echo "No upstream configured" 1>&2; return 1; }
-	local remote_name=$(echo "$upstream_ref" | cut -d'/' -f1)
-	local remote_branch=$(echo "$upstream_ref" | cut -d'/' -f2-)
-	if [ "$repo_pat_url" != "$repo_url" ]; then
-		git -C "$gitpath" fetch --quiet "$repo_pat_url" "refs/heads/$remote_branch:refs/remotes/$remote_name/$remote_branch" || { echo "Failed to fetch upstream" 1>&2; return 1; }
-	else
-		git -C "$gitpath" fetch --quiet || { echo "Failed to fetch upstream" 1>&2; return 1; }
-	fi
+	git -C "$gitpath" fetch --quiet || { echo "Failed to fetch upstream" 1>&2; return 1; }
 	local behind=$(git -C "$gitpath" rev-list --count "$local_branch..$upstream_ref" 2>/dev/null) || {
 		format_error "Failed to get commit count"
 		return 1
