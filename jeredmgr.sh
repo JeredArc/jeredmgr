@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.78                                                  #
+# JeredMgr 1.0.79                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -319,8 +319,8 @@ get_repo_pat_url() {  # args: $repo_url $use_global_pat $local_pat, reads: $glob
 	fi
 
 	if [ -n "$pat" ]; then
-		# Insert PAT into repository URL
-		echo "${repo_url/github.com/${pat}@github.com}"
+		# GitHub expects token as password (x-access-token works for classic and fine-grained PATs)
+		echo "${repo_url/github.com/x-access-token:${pat}@github.com}"
 	else
 		# No global PAT, local PAT is empty, assume either public repo or git-globally configured authentication
 		echo "$repo_url"
@@ -1461,12 +1461,16 @@ update_git_repo() {  # args: none, reads: $gitpath $repo_url $use_global_pat $lo
 	fi
 	repo_pat_url=$(get_repo_pat_url "$repo_url" "$use_global_pat" "$local_pat")
 	echo "Fetching updates ..."
-	git -C "$gitpath" fetch --quiet || { echo "Failed to fetch upstream" 1>&2; return 1; }
 	local previous_hash=$(git -C "$gitpath" rev-parse --short HEAD 2>/dev/null)
 	local local_branch=$(git -C "$gitpath" rev-parse --abbrev-ref HEAD 2>/dev/null)
 	local upstream_ref=$(git -C "$gitpath" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null) || { echo "No upstream configured" 1>&2; return 1; }
 	local remote_name=$(echo "$upstream_ref" | cut -d'/' -f1)
 	local remote_branch=$(echo "$upstream_ref" | cut -d'/' -f2-)
+	if [ "$repo_pat_url" != "$repo_url" ]; then
+		git -C "$gitpath" fetch --quiet "$repo_pat_url" "refs/heads/$remote_branch:refs/remotes/$remote_name/$remote_branch" || { echo "Failed to fetch upstream" 1>&2; return 1; }
+	else
+		git -C "$gitpath" fetch --quiet || { echo "Failed to fetch upstream" 1>&2; return 1; }
+	fi
 	local behind=$(git -C "$gitpath" rev-list --count "$local_branch..$upstream_ref" 2>/dev/null) || {
 		format_error "Failed to get commit count"
 		return 1
@@ -1480,7 +1484,7 @@ update_git_repo() {  # args: none, reads: $gitpath $repo_url $use_global_pat $lo
 	else
 		echo "Updating $($is_manager_updating && echo "JeredMgr from $VERSION" || echo "git repository") ($behind commits behind) ..."
 		startprogress ""
-		showprogress git -C "$gitpath" pull "$repo_pat_url" || {
+		showprogress git -C "$gitpath" merge --ff-only "$upstream_ref" || {
 			endprogress "$(format_error "Update failed with exit code $?!")"
 			echo "$lastoutput"
 			return 1
