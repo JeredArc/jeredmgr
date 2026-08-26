@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.80                                                  #
+# JeredMgr 1.0.81                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -245,10 +245,12 @@ check_git_path() {  # args: $gitdir, reads: none, sets: none
 # Utility: check whether upstream commit equals local commit without fetching (run in subshell, don't use format_ functions here!)
 check_git_upstream() {  # args: $path, reads: none, sets: none
 	local gitdir="$1"
-	local upstream_ref=$(git -C "$gitdir" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null) || { echo "No upstream configured" 1>&2; return 1; }
+	local upstream_ref
+	upstream_ref=$(git -C "$gitdir" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null) || { echo "No upstream configured" 1>&2; return 1; }
 	local remote_name=$(echo "$upstream_ref" | cut -d'/' -f1)
 	local remote_branch=$(echo "$upstream_ref" | cut -d'/' -f2-)
-	local upstream_commit=$(git -C "$gitdir" ls-remote --refs -q "$remote_name" "refs/heads/$remote_branch" 2>/dev/null) || {
+	local upstream_commit
+	upstream_commit=$(git -C "$gitdir" ls-remote --refs -q "$remote_name" "refs/heads/$remote_branch" 2>/dev/null) || {
 		echo "Failed to get upstream commit" 1>&2
 		return 1
 	}
@@ -1287,7 +1289,8 @@ command_status() {  # args: $project_name, reads: $enabled $type $path $project_
 	# Check for git updates
 	echo -n "Git status: "
 	if check_git_path "$gitpath"; then
-		local error_msg=$(check_git_upstream "$gitpath" 2>&1)
+		local error_msg
+		error_msg=$(check_git_upstream "$gitpath" 2>&1)
 		if [ $? -eq 0 ]; then
 			echo -e "${GREEN}Up to date!${RESET}$([ $type = "docker" ] && echo " (There might be new docker images available though)")"
 		else
@@ -1478,9 +1481,11 @@ update_git_repo() {  # args: none, reads: $gitpath $repo_url $use_global_pat $lo
 	echo "Fetching updates ..."
 	local previous_hash=$(git -C "$gitpath" rev-parse --short HEAD 2>/dev/null)
 	local local_branch=$(git -C "$gitpath" rev-parse --abbrev-ref HEAD 2>/dev/null)
-	local upstream_ref=$(git -C "$gitpath" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null) || { echo "No upstream configured" 1>&2; return 1; }
+	local upstream_ref
+	upstream_ref=$(git -C "$gitpath" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null) || { echo "No upstream configured" 1>&2; return 1; }
 	git -C "$gitpath" fetch --quiet || { echo "Failed to fetch upstream" 1>&2; return 1; }
-	local behind=$(git -C "$gitpath" rev-list --count "$local_branch..$upstream_ref" 2>/dev/null) || {
+	local behind
+	behind=$(git -C "$gitpath" rev-list --count "$local_branch..$upstream_ref" 2>/dev/null) || {
 		format_error "Failed to get commit count"
 		return 1
 	}
@@ -1516,7 +1521,8 @@ update_docker_images() {
 	did_docker_update=false
 	if [ $type = "docker" ] && check_compose_file; then
 		# pull images separately to track whether something was updated instead of `docker compose pull`
-		local config_output=$(docker compose -f "$compose_file" --project-directory "$path" config 2>/dev/null) || {
+		local config_output
+		config_output=$(docker compose -f "$compose_file" --project-directory "$path" config 2>/dev/null) || {
 			format_error "Failed to get docker compose config"
 			return 1
 		}
