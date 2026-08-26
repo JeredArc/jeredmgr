@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.81                                                  #
+# JeredMgr 1.0.82                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -130,6 +130,7 @@ list_commands() {  # args: none, reads: none, sets: none
 	echo -e "   - A project name can contain ${ITALIC}${DARKGRAY}'+'${RESET} as wildcard for matching projects"
 	echo -e "   - If no project name is provided (select all projects) or the wildcard matches multiple projects, a prompt will ask for confirmation"
 	echo -e "   - If the special project name ${ITALIC}${DARKGRAY}'+'${RESET} is used, the command will be for all projects without confirmation"
+	echo -e "   - If the special project name ${ITALIC}${DARKGRAY}'.'${RESET} is used, the current directory is walked up until a project's path matches, otherwise the command fails"
 	echo -e ""
 	format_header "# Options and parameters:j"
 	echo -e "   $(format_option "-q"), $(format_option "--quiet")                 Suppress prompts (for automation)"
@@ -1663,10 +1664,59 @@ for_each_project() {  # args: $action, reads: $project_name $projects_list $mult
 	if ! $all_success; then return 1; fi
 }
 
+# Utility: Resolve '.' to the project whose PATH is the cwd or a parent directory.
+resolve_dot_project_ref() {  # args: none, reads: $project_name $original_dir $PROJECTS_DIR, sets: $project_name
+	[ "$project_name" = "." ] || return 0
+
+	local cwd env_file name proj_path resolved matched_name matched_names matched_count parent
+	cwd=$(readlink -f "$original_dir" 2>/dev/null) || cwd="$original_dir"
+	[ "$cwd" != "/" ] && cwd="${cwd%/}"
+
+	while true; do
+		matched_name=""
+		matched_names=""
+		matched_count=0
+		for env_file in "$PROJECTS_DIR"/*.env; do
+			[ -f "$env_file" ] || continue
+			name=$(basename "$env_file" .env)
+			proj_path=$(read_env_value "PATH")
+			proj_path="${proj_path/#\~/$HOME}"
+			resolved=$(readlink -f "$proj_path" 2>/dev/null) || resolved="$proj_path"
+			[ "$resolved" != "/" ] && resolved="${resolved%/}"
+			if [ "$resolved" = "$cwd" ]; then
+				matched_count=$((matched_count + 1))
+				matched_name="$name"
+				matched_names+="${matched_names:+$'\n'}$name"
+			fi
+		done
+		if [ $matched_count -eq 1 ]; then
+			project_name="$matched_name"
+			return 0
+		elif [ $matched_count -gt 1 ]; then
+			format_error "Multiple projects have path $(format_path "$cwd"):"
+			echo "$matched_names" 1>&2
+			exit 1
+		fi
+		if [ "$cwd" = "/" ]; then
+			break
+		fi
+		parent=$(dirname "$cwd")
+		if [ "$parent" = "$cwd" ]; then
+			break
+		fi
+		cwd="$parent"
+	done
+
+	format_error "No project found with path $(format_path "$original_dir") or any parent directory."
+	exit 1
+}
+
 # Utility: Prompt the user to confirm multiple projects or error for single-project commands.
 check_projects_arg() {  # args: $can_multiple $verb, reads: $project_name $option_quiet, sets: $all_projects $multiple_projects $projects_list
 	local can_multiple="$1"
 	local verb="$2"  # can be empty, then no confirmation is asked
+
+	resolve_dot_project_ref
 
 	if [ -z "$project_name" ] || [ "$project_name" = "+" ]; then  # If no project name given or exactly +, handle all projects case
 		all_projects=true
@@ -1813,7 +1863,7 @@ case $command in
 		command_add "$project_name" || exit_code=$?
 		;;
 	remove)
-		# remove should need the full project name without wildcard, so we won't use check_projects_arg
+		# remove should need the full project name without wildcard, so we won't use check_projects_arg or resolve_dot_project_ref
 		for_each_project "remove" || exit_code=$?
 		;;
 	list)
