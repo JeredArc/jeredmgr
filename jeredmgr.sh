@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.0.82                                                  #
+# JeredMgr 1.1.0                                                   #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -10,6 +10,7 @@
 PROJECTS_DIR="./projects"           # projects directory, folder where all .env files live
 SELFUPDATE_REPO_URL="https://github.com/JeredArc/jeredmgr.git"   # JeredMgr repository URL
 GLOBAL_PAT_FILE="./global-pat.txt"  # file where the global GitHub PAT is stored
+GLOBAL_CONFIG_FILE="./global-config.env"  # optional file for global settings (HOME_DIR, DATA_DIR, LOGS_DIR)
 LOG_LINES=10                        # how many log lines to show with log by default when showing logs for all projects
 DEFAULT_DOCKER_IMAGE="node:22-alpine3.20"
 STATUS_CHECK_RETRIES=10             # how many times to retry checking status (100ms wait) after starting or stopping a project
@@ -123,6 +124,7 @@ list_commands() {  # args: none, reads: none, sets: none
 	echo -e "   $(format_command "config") $(format_project "<project>")    Get project's config ($(format_path ".env")) file path (useful with ${BOLD}\`less \$(jm config <project>)\`${RESET})"
 	echo -e "   $(format_command "file") $(format_project "<project>")      Get project's $(format_path "docker-compose.yml") or $(format_path "<project-name>.service") file path (useful with ${BOLD}\`less \$(jm file <project>)\`${RESET})"
 	echo -e "   $(format_command "shell") $(format_project "<project>")     Open a shell in the project container"
+	echo -e "   $(format_command "dc") $(format_project "<project>") ${ITALIC}${DARKGRAY}<args>${RESET}  Run ${BOLD}\`docker compose\`${RESET} with arbitrary arguments in the project's context (all arguments after the project are passed unparsed)"
 	echo -e "   $(format_command "update") $(format_project "[project]")    Update project(s) using git. With all projects, self-update is run at first. If you don't want that, use ${ITALIC}${DARKGRAY}'++'${RESET} as project name."
 	echo -e "   $(format_command "self-update") | $(format_command "sup")   Update manager script"
 	echo -e ""
@@ -173,7 +175,10 @@ show_help() {  # args: none, reads: none, sets: none
 	format_header "# When running a project, JeredMgr will:"
 	echo -e ""
 	echo -e "- Type '${BOLD}docker${RESET}'"
-	echo -e "  Run the project with ${BOLD}\`docker compose -f <project-name>.docker-compose.yml --project-directory <project-path> up -d\`${RESET} / ${BOLD}\`... down\`${RESET} etc."
+	echo -e "  Run the project with ${BOLD}\`docker compose -f <project-name>.docker-compose.yml --project-directory <real-project-path> up -d\`${RESET} / ${BOLD}\`... down\`${RESET} etc."
+	echo -e "  (The project path is passed with symlinks resolved, so relative paths in the compose file resolve from its actual location."
+	echo -e "   For ${DARKGRAY}SUBDIR${RESET} projects, ${BOLD}\`-p <project-name>\`${RESET} is added unless the compose file sets a top-level ${DARKGRAY}name:${RESET}."
+	echo -e "   Use ${BOLD}\`$SCRIPT_NAME dc <project> <args>\`${RESET} to run any docker compose command with the same parameters.)"
 	echo -e "  (Keep in mind: If a docker project is stopped, it does not automatically start again on reboot,"
 	echo -e "   as ${BOLD}\`docker compose ... down\`${RESET} removes the container. That way, changes to the compose file automatically take effect.)"
 	echo -e ""
@@ -213,13 +218,20 @@ show_help() {  # args: none, reads: none, sets: none
 	echo -e ""
 	echo -e "- Else:"
 	echo -e "  - Update the project using git if it's a git repository"
+	echo -e "    (with ${DARKGRAY}SUBDIR${RESET}, install and restart only happen if the sub directory or one of the ${DARKGRAY}WATCH_PATHS${RESET} changed)"
 	echo -e "  - Pull new images from the docker repositories if it's a docker project"
 	echo -e ""
 	format_header "# Further notes:"
 	echo -e ""
 	echo -e "- To select a sub directory from a git repository, provide it when creating the project or set the ${DARKGRAY}SUBDIR${RESET} variable in the $(format_path ".env") file"
-	echo -e "  The full repo will then be cloned into a subdirectory of JeredMgr's projects directory,"
+	echo -e "  The full repo will then be cloned into $(format_path "<project-name>.fullgitrepo") in JeredMgr's projects directory,"
 	echo -e "  and the project path will be set up as a link pointing to the sub directory."
+	echo -e "  Additional paths inside the repo (e.g. shared config) can be set as space-separated ${DARKGRAY}WATCH_PATHS${RESET} in the $(format_path ".env") file."
+	echo -e ""
+	echo -e "- Global settings can be stored in $(format_path "global-config.env") in JeredMgr's directory:"
+	echo -e "  - ${DARKGRAY}HOME_DIR${RESET}: Directory used for '~' (default: the first parent of JeredMgr's directory that is a user's home directory)"
+	echo -e "  - ${DARKGRAY}DATA_DIR${RESET} / ${DARKGRAY}LOGS_DIR${RESET}: Base directories for project data and logs (relative to JeredMgr's directory or starting with '~')"
+	echo -e "    Each project gets ${DARKGRAY}JEREDMGR_DATA_DIR${RESET} / ${DARKGRAY}JEREDMGR_LOGS_DIR${RESET} (base directory + project name) exported to docker compose and scripts."
 }
 
 ################################################################################
@@ -350,6 +362,29 @@ read_env_value() {  # args: $key, reads: env_file, sets: none
 	grep "^${key}=" "$env_file" | cut -d'#' -f1 | cut -d'=' -f2
 }
 
+# Utility: expand a leading '~' to the home directory determined at startup (run in subshell, don't use format_ functions here!)
+expand_tilde() {  # args: $value, reads: $home_dir, sets: none
+	local value="$1"
+	if [ "$value" = "~" ] || [[ "$value" == "~/"* ]]; then
+		if [ -z "$home_dir" ]; then
+			echo "Cannot expand '~' in '$value': JeredMgr is not located inside a home directory, please set HOME_DIR in $GLOBAL_CONFIG_FILE." 1>&2
+			return 1
+		fi
+		value="$home_dir${value:1}"
+	fi
+	echo "$value"
+}
+
+# Utility: create the project's data and logs directories, if configured
+ensure_project_dirs() {  # args: none, reads: $JEREDMGR_DATA_DIR $JEREDMGR_LOGS_DIR, sets: none
+	if [ -n "$JEREDMGR_DATA_DIR" ]; then
+		mkdir -p "$JEREDMGR_DATA_DIR" || { format_error "Failed to create data directory $(format_path "$JEREDMGR_DATA_DIR")."; return 1; }
+	fi
+	if [ -n "$JEREDMGR_LOGS_DIR" ]; then
+		mkdir -p "$JEREDMGR_LOGS_DIR" || { format_error "Failed to create logs directory $(format_path "$JEREDMGR_LOGS_DIR")."; return 1; }
+	fi
+}
+
 # Utility: write or update a value in .env file
 write_env_value() {  # args: $key $value, reads: $env_file, sets: none
 	local key="$1"
@@ -371,7 +406,7 @@ check_project_type() {  # args: none, reads: $type, sets: $type_checked
 }
 
 # Utility: load project values
-load_project_values() {  # args: $project_name, reads: none, sets: $project_name $env_file $enabled $repo_url $path $gitpath $use_global_pat $local_pat $type $type_checked
+load_project_values() {  # args: $project_name, reads: $home_dir $data_dir $logs_dir, sets: $project_name $env_file $enabled $repo_url $subdir $watch_paths $path $gitpath $use_global_pat $local_pat $type $type_checked $JEREDMGR_DATA_DIR $JEREDMGR_LOGS_DIR
 	project_name="$1"
 	env_file="$PROJECTS_DIR/$project_name.env"
 	if [ ! -f "$env_file" ]; then
@@ -385,18 +420,48 @@ load_project_values() {  # args: $project_name, reads: none, sets: $project_name
 	fi
 	repo_url=$(read_env_value "REPO_URL")
 	subdir=$(read_env_value "SUBDIR")
+	watch_paths=$(read_env_value "WATCH_PATHS")
+	local watch_path watch_paths_array
+	read -ra watch_paths_array <<< "$watch_paths"  # split without glob expansion
+	for watch_path in "${watch_paths_array[@]}"; do
+		if [[ "$watch_path" == /* ]] || [[ "/$watch_path/" == */../* ]]; then
+			format_error "Invalid WATCH_PATHS entry '$watch_path' for project $(format_project "$project_name"), it must be relative to the repository root and stay inside it."
+			return 1
+		fi
+	done
 	use_global_pat=$(read_env_value "USE_GLOBAL_PAT")
 	if ! $use_global_pat; then  # force to boolean
 		use_global_pat=false
 	fi
 	local_pat=$(read_env_value "LOCAL_PAT")
 	path=$(read_env_value "PATH")
-	path="${path/#\~/$HOME}"  # Expand tilde to $HOME
+	path=$(expand_tilde "$path") || return 1
 	type=$(read_env_value "TYPE")
+
+	# Per-project data and logs directories, exported for docker compose and scripts
+	if [ -n "$data_dir" ]; then
+		export JEREDMGR_DATA_DIR="$data_dir/$project_name"
+	else
+		unset JEREDMGR_DATA_DIR
+	fi
+	if [ -n "$logs_dir" ]; then
+		export JEREDMGR_LOGS_DIR="$logs_dir/$project_name"
+	else
+		unset JEREDMGR_LOGS_DIR
+	fi
 
 	# Initialize gitpath based on whether subdir is specified
 	if [ -n "$subdir" ]; then
-		gitpath="$PROJECTS_DIR/${project_name}-fullgitrepo"
+		gitpath="$PROJECTS_DIR/${project_name}.fullgitrepo"
+		# Migrate full git repo directory from pre-1.1.0 naming (<project-name>-fullgitrepo), messages to stderr to keep stdout clean for `path` command
+		local old_gitpath="$PROJECTS_DIR/${project_name}-fullgitrepo"
+		if [ ! -e "$gitpath" ] && [ -d "$old_gitpath" ]; then
+			echo "Migrating full git repository $(format_path "$old_gitpath") to $(format_path "$gitpath") ..." 1>&2
+			mv "$old_gitpath" "$gitpath" || { format_error "Failed to move full git repository."; return 1; }
+			if [ -L "$path" ]; then
+				ln -sfn "$gitpath/$subdir" "$path" || { format_error "Failed to re-link $(format_path "$path") to $(format_path "$gitpath/$subdir")."; return 1; }
+			fi
+		fi
 	else
 		gitpath="$path"
 	fi
@@ -444,8 +509,9 @@ generate_compose_file_content() {  # args: none, reads: $project_name $path, set
 }
 
 # Utility: Ensure a canonical symlinked compose file exists for the project, generating or linking as needed.
-select_compose_file() {  # args: none, reads: $project_name $path, sets: $compose_file
+select_compose_file() {  # args: none, reads: $project_name $path $subdir, sets: $compose_file $compose_project_dir $compose_name_args
 	compose_file="$PROJECTS_DIR/$project_name.docker-compose.yml"
+	compose_project_dir=$(readlink -f "$path")  # real path, so relative paths in the compose file resolve from its actual location (e.g. inside a SUBDIR repo)
 	# If already a regular file itself (not a symlink), use it
 	if [ -f "$compose_file" ] && [ ! -L "$compose_file" ]; then
 		echo -e "Using compose file: $(format_path "$compose_file")"
@@ -533,13 +599,24 @@ select_compose_file() {  # args: none, reads: $project_name $path, sets: $compos
 			return 1
 		fi
 	fi
+	set_compose_name_args
 }
 
 # Utility: check if the compose file (link or file) exists for the project
-check_compose_file() {  # args: none, reads: $project_name, sets: $compose_file
+check_compose_file() {  # args: none, reads: $project_name $path $subdir, sets: $compose_file $compose_project_dir $compose_name_args
 	compose_file="$PROJECTS_DIR/$project_name.docker-compose.yml"
+	compose_project_dir=$(readlink -f "$path")  # real path, so relative paths in the compose file resolve from its actual location (e.g. inside a SUBDIR repo)
+	set_compose_name_args
 	if [ ! -f "$compose_file" ]; then
 		return 1
+	fi
+}
+
+# Utility: for SUBDIR projects, use the unique project name as compose project name instead of the sub directory's name, unless the compose file sets a top-level name
+set_compose_name_args() {  # args: none, reads: $compose_file $project_name $subdir, sets: $compose_name_args
+	compose_name_args=()
+	if [ -n "$subdir" ] && ! grep -q '^name:' "$compose_file" 2>/dev/null; then
+		compose_name_args=(-p "$project_name")
 	fi
 }
 
@@ -722,8 +799,8 @@ command_add() {  # args: $project_name, reads: none, sets: $project_name $env_fi
 		read -p "Project name: " project_name
 	fi
 	# Validate project name format
-	if ! [[ "$project_name" =~ ^[a-z_][a-z_0-9]*$ ]]; then
-		format_error "Project name must start with a lowercase letter or underscore and contain only lowercase letters, numbers, and underscores."
+	if ! [[ "$project_name" =~ ^[a-z][a-z_0-9-]*$ ]]; then  # also a valid docker compose project name
+		format_error "Project name must start with a lowercase letter and contain only lowercase letters, numbers, underscores, and dashes."
 		return 1
 	fi
 	env_file="${PROJECTS_DIR}/${project_name}.env"
@@ -737,6 +814,7 @@ command_add() {  # args: $project_name, reads: none, sets: $project_name $env_fi
 		echo "Project will not have a GitHub repository."
 		repo=""
 		subdir=""
+		watch_paths=""
 		local_pat=""
 		use_global_pat=false
 		repo_url=""
@@ -746,6 +824,10 @@ command_add() {  # args: $project_name, reads: none, sets: $project_name $env_fi
 			repo=$project_name
 		fi
 		read -p "Subdirectory inside git repo (default: none): " subdir
+		watch_paths=""
+		if [ -n "$subdir" ]; then
+			read -p "Additional paths inside git repo whose changes require a restart, space-separated (default: none): " watch_paths
+		fi
 		read -p "Use global GitHub PAT? (y/n, default: n): " use_global_pat
 		[[ $use_global_pat == [Yy]* ]] && use_global_pat=true || use_global_pat=false
 		local_pat=""
@@ -771,6 +853,7 @@ command_add() {  # args: $project_name, reads: none, sets: $project_name $env_fi
 		echo "ENABLED=false"
 		echo "REPO_URL=$repo_url"
 		[ -n "$subdir" ] && echo "SUBDIR=$subdir"
+		[ -n "$watch_paths" ] && echo "WATCH_PATHS=$watch_paths"
 		echo "USE_GLOBAL_PAT=$use_global_pat"
 		echo "LOCAL_PAT=$local_pat"
 		echo "PATH=$path"
@@ -901,6 +984,8 @@ run_install() {  # args: none, reads: $repo_url $use_global_pat $local_pat $path
 		fi
 	fi
 
+	ensure_project_dirs || return 1
+
 	did_run_setup=false
 	# run setup.sh if exists for all project types
 	if [ -f "$path/setup.sh" ]; then
@@ -916,7 +1001,7 @@ run_install() {  # args: none, reads: $repo_url $use_global_pat $local_pat $path
 				return 1
 			fi
 			echo "Building possible docker images ..."
-			docker compose -f "$compose_file" --project-directory "$path" build
+			docker compose -f "$compose_file" --project-directory "$compose_project_dir" "${compose_name_args[@]}" build
 			;;
 		service)
 			if ! select_service_file; then
@@ -986,7 +1071,7 @@ command_disable() {  # args: $project_name, reads: $env_file $type $path, sets: 
 				else
 					if grep -q '# Auto-generated by JeredMgr, will remove images on uninstall' "$compose_file"; then
 						echo "Stopping possibly running docker containers and removing images ..."
-						docker compose -f "$compose_file" --project-directory "$path" down --rmi all
+						docker compose -f "$compose_file" --project-directory "$compose_project_dir" "${compose_name_args[@]}" down --rmi all
 						if [ -f "$compose_file" ]; then
 							# Check if compose file was auto-generated and matches current content
 							if [ $(cat "$compose_file") = $(generate_compose_file_content) ]; then
@@ -999,7 +1084,7 @@ command_disable() {  # args: $project_name, reads: $env_file $type $path, sets: 
 						fi
 					else
 						echo "Stopping possibly running docker containers ..."
-						docker compose -f "$compose_file" --project-directory "$path" down
+						docker compose -f "$compose_file" --project-directory "$compose_project_dir" "${compose_name_args[@]}" down
 					fi
 				fi
 				;;
@@ -1040,7 +1125,7 @@ get_running_status() {  # args: none, reads: $type $path $project_name, sets: no
 				echo "Unknown"
 				return
 			else
-				running=$(docker compose -f "$compose_file" --project-directory "$path" ps --services --filter status=running 2>/dev/null) || running=""
+				running=$(docker compose -f "$compose_file" --project-directory "$compose_project_dir" "${compose_name_args[@]}" ps --services --filter status=running 2>/dev/null) || running=""
 				[ -n "$running" ] && echo "Yes" || echo "No"
 			fi
 			;;
@@ -1076,6 +1161,7 @@ command_start() {  # args: $project_name, reads: $enabled $type $path $project_n
 		echo "Already running, skipping start."
 		return
 	fi
+	ensure_project_dirs || return 1
 	local check_status=false
 	case "$type" in
 		docker)
@@ -1083,7 +1169,7 @@ command_start() {  # args: $project_name, reads: $enabled $type $path $project_n
 				format_error "No valid docker compose file found, cannot start."
 				return 1
 			fi
-			docker compose -f "$compose_file" --project-directory "$path" up -d
+			docker compose -f "$compose_file" --project-directory "$compose_project_dir" "${compose_name_args[@]}" up -d
 			check_status=true
 			;;
 		service)
@@ -1150,7 +1236,7 @@ command_stop() {  # args: $project_name, reads: $type $path $project_name, sets:
 				format_error "No valid docker compose file found, cannot stop."
 				return 1
 			fi
-			docker compose -f "$compose_file" --project-directory "$path" down
+			docker compose -f "$compose_file" --project-directory "$compose_project_dir" "${compose_name_args[@]}" down
 			check_status=true
 			;;
 		service)
@@ -1209,14 +1295,15 @@ command_restart() {  # args: $project_name, reads: $enabled $type $path $project
 		format_warning "Unknown or unsupported type '$type', skipping restart."
 		return 1
 	fi
+	ensure_project_dirs || return 1
 	case "$type" in
 		docker)
 			if ! check_compose_file; then
 				format_error "No valid docker compose file found, cannot restart."
 				return 1
 			fi
-			docker compose -f "$compose_file" --project-directory "$path" down
-			docker compose -f "$compose_file" --project-directory "$path" up -d
+			docker compose -f "$compose_file" --project-directory "$compose_project_dir" "${compose_name_args[@]}" down
+			docker compose -f "$compose_file" --project-directory "$compose_project_dir" "${compose_name_args[@]}" up -d
 			;;
 		service)
 			if ! check_service_file; then
@@ -1280,6 +1367,15 @@ command_status() {  # args: $project_name, reads: $enabled $type $path $project_
 	if [ -n "$subdir" ]; then
 		echo -e "Subdirectory: $(format_path "$subdir")"
 	fi
+	if [ -n "$watch_paths" ]; then
+		echo -e "Watch paths: $(format_path "$watch_paths")"
+	fi
+	if [ -n "$JEREDMGR_DATA_DIR" ]; then
+		echo -e "Data directory: $(format_path "$JEREDMGR_DATA_DIR")"
+	fi
+	if [ -n "$JEREDMGR_LOGS_DIR" ]; then
+		echo -e "Logs directory: $(format_path "$JEREDMGR_LOGS_DIR")"
+	fi
 	if $use_global_pat; then
 		echo "Authentication: Using global PAT"
 	elif [ -n "$local_pat" ]; then
@@ -1305,7 +1401,7 @@ command_status() {  # args: $project_name, reads: $enabled $type $path $project_
 		echo ""
 		case "$type" in
 			docker)
-				docker compose -f "$compose_file" --project-directory "$path" ps -a
+				docker compose -f "$compose_file" --project-directory "$compose_project_dir" "${compose_name_args[@]}" ps -a
 				;;
 			service)
 				systemctl status "$project_name" --no-pager -n 0
@@ -1327,7 +1423,7 @@ command_logs() {  # args: $project_name, reads: $type $path $project_name $all_p
 				format_warning "No valid docker compose file found, cannot show logs."
 				return 1
 			fi
-			docker compose -f "$compose_file" --project-directory "$path" logs $(! $all_projects && [ "$parameter_lines" = "f" ] && echo "-f" || echo "-n ${parameter_lines//f/$LOG_LINES}")
+			docker compose -f "$compose_file" --project-directory "$compose_project_dir" "${compose_name_args[@]}" logs $(! $all_projects && [ "$parameter_lines" = "f" ] && echo "-f" || echo "-n ${parameter_lines//f/$LOG_LINES}")
 			;;
 		service)
 			if ! check_service_file; then
@@ -1348,9 +1444,13 @@ command_logs() {  # args: $project_name, reads: $type $path $project_name $all_p
 }
 
 # Command: Output the project's path
-command_path() {  # args: $project_name, reads: $path, sets: none
+command_path() {  # args: $project_name, reads: $path $subdir, sets: none
 	load_project_values "$1" || return 1
-	echo "$path"
+	if [ -n "$subdir" ] && [ -L "$path" ]; then
+		readlink -f "$path"  # real path inside the full git repo, so relative paths behave like in jeredmgr's docker compose calls
+	else
+		echo "$path"
+	fi
 }
 
 # Command: Output the project's config file path
@@ -1419,7 +1519,7 @@ command_shell() {  # args: $project_name, reads: $enabled $type $path $project_n
 	fi
 
 	# Get all service names from docker-compose.yml
-	local services=$(docker compose -f "$compose_file" --project-directory "$path" ps --services)
+	local services=$(docker compose -f "$compose_file" --project-directory "$compose_project_dir" "${compose_name_args[@]}" ps --services)
 	if [ -z "$services" ]; then
 		format_error "Could not determine service names from docker compose file."
 		return 1
@@ -1465,13 +1565,28 @@ command_shell() {  # args: $project_name, reads: $enabled $type $path $project_n
 	fi
 
 	format_header "Opening container-shell for project $(format_project "$project_name") service ${DARKGRAY}$service_name${RESET}:"
-	docker compose -f "$compose_file" --project-directory "$path" exec "$service_name" sh -l
+	docker compose -f "$compose_file" --project-directory "$compose_project_dir" "${compose_name_args[@]}" exec "$service_name" sh -l
+}
+
+# Command: Run docker compose with arbitrary arguments in the project's context (docker only).
+command_dc() {  # args: $project_name, reads: $type $dc_args, sets: none
+	load_project_values "$1" || return 1
+	if [ "$type" != "docker" ]; then
+		format_error "Command $(format_command "dc") is only available for docker projects."
+		return 1
+	fi
+	if ! check_compose_file; then
+		format_error "No valid docker compose file found, is the project enabled?"
+		return 1
+	fi
+	ensure_project_dirs || return 1
+	docker compose -f "$compose_file" --project-directory "$compose_project_dir" "${compose_name_args[@]}" "${dc_args[@]}"
 }
 
 is_manager_updating=false
 did_git_update=false
 # Command: Update the git repository for a project.
-update_git_repo() {  # args: none, reads: $gitpath $repo_url $use_global_pat $local_pat, sets: none
+update_git_repo() {  # args: none, reads: $gitpath $repo_url $use_global_pat $local_pat $subdir $watch_paths $is_manager_updating, sets: $did_git_update
 	did_git_update=false
 	if ! check_git_path "$gitpath"; then
 		format_warning "Path is not a git repository, skipping git repository update."
@@ -1511,6 +1626,15 @@ update_git_repo() {  # args: none, reads: $gitpath $repo_url $use_global_pat $lo
 			endprogress "$(format_success "Successfully updated git repository from $previous_hash to $current_hash")"
 		fi
 		did_git_update=true
+		# For SUBDIR projects, only changes in the subdirectory or in the watch paths require install and restart
+		if ! $is_manager_updating && [ -n "$subdir" ]; then
+			local watch_paths_array
+			read -ra watch_paths_array <<< "$watch_paths"  # split without glob expansion
+			if git -C "$gitpath" diff --quiet "$previous_hash" "$current_hash" -- "$subdir" "${watch_paths_array[@]}"; then
+				echo -e "No changes in subdirectory $(format_path "$subdir")$([ -n "$watch_paths" ] && echo " or watch paths $(format_path "$watch_paths")")."
+				did_git_update=false
+			fi
+		fi
 	fi
 }
 
@@ -1523,7 +1647,7 @@ update_docker_images() {
 	if [ $type = "docker" ] && check_compose_file; then
 		# pull images separately to track whether something was updated instead of `docker compose pull`
 		local config_output
-		config_output=$(docker compose -f "$compose_file" --project-directory "$path" config 2>/dev/null) || {
+		config_output=$(docker compose -f "$compose_file" --project-directory "$compose_project_dir" "${compose_name_args[@]}" config 2>/dev/null) || {
 			format_error "Failed to get docker compose config"
 			return 1
 		}
@@ -1586,7 +1710,7 @@ command_update() {  # args: $project_name, reads: $path $repo_url $use_global_pa
 		update_git_repo || return 1
 		update_docker_images || return 1
 		if ! $did_git_update && ! $did_docker_update; then
-			echo "No updates were made, skipping install and restart."
+			echo "No relevant updates were made, skipping install and restart."
 			return
 		fi
 	fi
@@ -1680,7 +1804,7 @@ resolve_dot_project_ref() {  # args: none, reads: $project_name $original_dir $P
 			[ -f "$env_file" ] || continue
 			name=$(basename "$env_file" .env)
 			proj_path=$(read_env_value "PATH")
-			proj_path="${proj_path/#\~/$HOME}"
+			proj_path=$(expand_tilde "$proj_path") || continue
 			resolved=$(readlink -f "$proj_path" 2>/dev/null) || resolved="$proj_path"
 			[ "$resolved" != "/" ] && resolved="${resolved%/}"
 			if [ "$resolved" = "$cwd" ]; then
@@ -1774,6 +1898,7 @@ original_dir=$(pwd)
 cd "$(dirname $(readlink -f "$0"))"
 PROJECTS_DIR=$(readlink -f "$PROJECTS_DIR")
 GLOBAL_PAT_FILE=$(readlink -f "$GLOBAL_PAT_FILE")
+GLOBAL_CONFIG_FILE=$(readlink -f "$GLOBAL_CONFIG_FILE")
 
 command=""
 project_name=""
@@ -1783,6 +1908,7 @@ option_no_status_check=false
 option_no_restart=false
 option_internal_recursive=false
 parameter_lines="f"
+dc_args=()
 
 all_projects=false
 multiple_projects=false
@@ -1833,6 +1959,11 @@ while [[ $# -gt 0 ]]; do
 				command="$1"
 			elif [ -z "$project_name" ]; then
 				project_name="$1"
+				if [ "$command" = "dc" ]; then  # pass all remaining arguments unparsed to docker compose
+					shift
+					dc_args=("$@")
+					break
+				fi
 			else
 				format_error "Too many arguments: $1"
 				list_commands
@@ -1852,6 +1983,41 @@ fi
 if [ "$command" = "help" ]; then
 	show_help
 	exit 0
+fi
+
+# Global settings: home directory for '~' expansion (HOME_DIR, otherwise the first parent of JeredMgr's directory that is a user's home directory), data and logs directories
+home_dir=""
+data_dir=""
+logs_dir=""
+if [ -f "$GLOBAL_CONFIG_FILE" ]; then
+	home_dir=$(env_file="$GLOBAL_CONFIG_FILE" read_env_value "HOME_DIR")
+	data_dir=$(env_file="$GLOBAL_CONFIG_FILE" read_env_value "DATA_DIR")
+	logs_dir=$(env_file="$GLOBAL_CONFIG_FILE" read_env_value "LOGS_DIR")
+fi
+if [ -n "$home_dir" ]; then
+	if [[ "$home_dir" != /* ]]; then
+		format_error "HOME_DIR in $(format_path "$GLOBAL_CONFIG_FILE") must be an absolute path."
+		exit 1
+	fi
+else
+	home_dirs=$(getent passwd 2>/dev/null | cut -d: -f6)
+	dir=$(pwd)
+	while [ "$dir" != "/" ]; do
+		if grep -qxF "$dir" <<< "$home_dirs"; then
+			home_dir="$dir"
+			break
+		fi
+		dir=$(dirname "$dir")
+	done
+fi
+# Relative DATA_DIR / LOGS_DIR are relative to JeredMgr's directory
+if [ -n "$data_dir" ]; then
+	data_dir=$(expand_tilde "$data_dir") || exit 1
+	data_dir=$(readlink -m "$data_dir")
+fi
+if [ -n "$logs_dir" ]; then
+	logs_dir=$(expand_tilde "$logs_dir") || exit 1
+	logs_dir=$(readlink -m "$logs_dir")
 fi
 
 mkdir -p "$PROJECTS_DIR" || { format_error "Failed to create projects directory $(format_path "$PROJECTS_DIR")!"; exit 1; }
@@ -1913,6 +2079,10 @@ case $command in
 	shell)
 		check_projects_arg false "open shell for" || exit 1
 		for_each_project "shell" || exit_code=$?
+		;;
+	dc)
+		check_projects_arg false "" || exit 1
+		command_dc "$project_name" || exit_code=$?  # run directly to avoid printing headers
 		;;
 	update)
 		if [ -z "$project_name" ] || [ "$project_name" = "+" ]; then  # First update manager script

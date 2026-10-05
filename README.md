@@ -3,6 +3,26 @@
 JeredMgr is a tool that helps you install, run, and update multiple projects using Docker containers, systemd services, or custom scripts.
 
 
+## ⚠️ Breaking changes in 1.1.0
+
+- **Full git repo directory renamed:** Projects using `SUBDIR` now keep their full clone in `projects/<project-name>.fullgitrepo` instead of `projects/<project-name>-fullgitrepo`. Existing directories are renamed automatically (and the project path link is re-pointed) the next time JeredMgr loads such a project.
+- **Docker compose project directory is the real path:** `--project-directory` is now passed with symlinks resolved. For `SUBDIR` projects, relative paths in the compose file (e.g. `../shared.conf`) now resolve inside the repository instead of JeredMgr's projects directory.
+  The **compose project name** is affected as follows:
+  - `SUBDIR` projects: JeredMgr now passes `-p <project-name>` unless the compose file sets a top-level `name:`. Previously, the name was derived from the basename of `PATH` (the link). So only `SUBDIR` projects whose `PATH` basename differs from the project name get a new compose project name.
+  - Projects without `SUBDIR` whose `PATH` is a symlink: the name is now derived from the link target's directory name instead of the link's name.
+  - Projects without `SUBDIR` whose `PATH` is a real directory are not affected.
+
+  **Stop affected docker projects before upgrading**, otherwise JeredMgr won't find their containers anymore (fix afterwards with `docker compose -p <old-name> down`). Also note that named volumes are prefixed with the compose project name, so affected projects would start with new, empty named volumes (the old ones remain under the old name).
+- **`~` is no longer `$HOME`:** A leading `~` in a project's `PATH` (and in the new global settings) now means the first parent of JeredMgr's directory that is a user's home directory, or `HOME_DIR` from `global-config.env`. This only differs from before when JeredMgr runs as a different user (e.g. with `sudo`).
+- **`path` command returns the real path for `SUBDIR` projects** (the sub directory inside the full git repo) instead of the link.
+
+Non-breaking changes in 1.1.0:
+- `update` only installs and restarts `SUBDIR` projects if something in the sub directory or in the project's `WATCH_PATHS` changed (new docker images still trigger a restart).
+- New optional `global-config.env` with `HOME_DIR`, `DATA_DIR`, `LOGS_DIR` (see [Configuration](#configuration)).
+- New `dc` command: `jm dc <project> <args>` runs `docker compose` with arbitrary arguments and the same parameters JeredMgr uses (compose file, project directory, project name, `JEREDMGR_*` variables).
+- New project names may contain dashes, but must start with a lowercase letter (so they are always valid docker compose project names). Existing projects are not checked.
+
+
 ## Features
 
 - **Multiple Project Types Support**:
@@ -64,6 +84,10 @@ It's as simple as that!
 
 # Update a project
 ./jeredmgr.sh update <project>
+
+# Run any docker compose command in a docker project's context
+./jeredmgr.sh dc <project> ps
+./jeredmgr.sh dc <project> exec <service> sh
 ```
 
 
@@ -73,7 +97,9 @@ Projects are simply and solely stored using an `.env` file for each project in t
 
 - `ENABLED`: Project enabled status (`true`/`false`)
 - `REPO_URL`: GitHub repository URL (must start with `https://github.com/` to work with PAT authentication)
-- `PATH`: Local project path
+- `SUBDIR`: Optional sub directory inside the repository to use as project (the full repo is cloned to `projects/<project-name>.fullgitrepo` and `PATH` becomes a link to the sub directory)
+- `WATCH_PATHS`: Optional space-separated paths inside the repository (relative to its root) that, besides `SUBDIR`, require install and restart on `update` when changed (e.g. shared config files)
+- `PATH`: Local project path (a leading `~` is expanded, see `HOME_DIR` below)
 - `USE_GLOBAL_PAT`: Whether to use JeredMgr's global GitHub PAT (`true`/`false`)
 - `LOCAL_PAT`: Project-specific GitHub PAT (if `USE_GLOBAL_PAT = false`, leave empty for no or git-configured authentication)
 - `TYPE`: Project type (`docker`/`service`/`scripts`)
@@ -81,8 +107,22 @@ Projects are simply and solely stored using an `.env` file for each project in t
 In the `projects` directory, there are additionally stored:
 - an obligatory `<project-name>.docker-compose.yml` file or link for enabled type `docker` projects, which will be used for all `docker compose` commands
 - an obligatory `<project-name>.service` file or link for enabled type `service` projects, to which a link in `/etc/systemd/system/` will point to
+- a `<project-name>.fullgitrepo` directory with the full repository clone for projects using `SUBDIR`
 
 The global GitHub PAT is stored in `global-pat.txt` and can be modified there.
+
+Optional global settings can be stored in `global-config.env` in JeredMgr's directory:
+- `HOME_DIR`: Absolute directory used to expand a leading `~` (default: the first parent of JeredMgr's directory that is a user's home directory; only needed if JeredMgr is located outside of any home directory and `~` is used)
+- `DATA_DIR`: Base directory for project data, e.g. `~/data`
+- `LOGS_DIR`: Base directory for project logs, e.g. `~/logs`
+
+Relative `DATA_DIR` / `LOGS_DIR` values are relative to JeredMgr's directory. For each project, JeredMgr exports `JEREDMGR_DATA_DIR` / `JEREDMGR_LOGS_DIR` (base directory + `/<project-name>`) to all `docker compose` calls and scripts, and creates these directories on install, start and restart. Compose files can use them with a fallback for running without JeredMgr, e.g.:
+
+```yaml
+volumes:
+  - ${JEREDMGR_DATA_DIR:-./data}:/data
+  - ${JEREDMGR_LOGS_DIR:-./logs}:/logs
+```
 
 ## Contributing
 
