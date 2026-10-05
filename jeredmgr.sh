@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.1.2                                                  #
+# JeredMgr 1.1.3                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -72,8 +72,8 @@ format_option() {  # args: $option, reads: none, sets: none
 }
 
 # Utility: Format variables
-format_variable() {  # args: $variable, reads: none, sets: none
-	echo -e "${BOLD}${DARKGRAY}${variable//${RESET}/${RESET}${BOLD}${DARKGRAY}}${RESET}"
+format_variable() {  # args: $variable_name, reads: none, sets: none
+	echo -e "${BOLD}${DARKGRAY}${1//${RESET}/${RESET}${BOLD}${DARKGRAY}}${RESET}"
 }
 
 # Utility: Format paths
