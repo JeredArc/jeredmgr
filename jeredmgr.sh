@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.1.1                                                   #
+# JeredMgr 1.1.2                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -69,6 +69,11 @@ format_project() {  # args: $project, reads: none, sets: none
 # Utility: Format options and parameters
 format_option() {  # args: $option, reads: none, sets: none
 	echo -e "${BOLD}${ITALIC}${MAGENTA}${1//${RESET}/${RESET}${BOLD}${ITALIC}${MAGENTA}}${RESET}"
+}
+
+# Utility: Format variables
+format_variable() {  # args: $variable, reads: none, sets: none
+	echo -e "${BOLD}${DARKGRAY}${variable//${RESET}/${RESET}${BOLD}${DARKGRAY}}${RESET}"
 }
 
 # Utility: Format paths
@@ -2028,7 +2033,7 @@ if [ -n "$home_dir" ]; then
 	fi
 	home_dir_info="set in global config"
 else
-	home_dir_info="not set, first parent of JeredMgr's directory that is a user's home directory"
+	home_dir_info="not set, using first parent of JeredMgr's directory that is a user's home directory"
 	home_dirs=$(getent passwd 2>/dev/null | cut -d: -f6)
 	dir=$(pwd)
 	while [ "$dir" != "/" ]; do
@@ -2055,9 +2060,9 @@ if [ -z "$command" ]; then
 	echo -e ""
 	format_header "# Current global config ($(format_path "$GLOBAL_CONFIG_FILE")$([ -f "$GLOBAL_CONFIG_FILE" ] || echo " not present")):"
 	# HOME_DIR styled like format_path, but not shown as '~', as that's what it defines
-	echo -e "   ${DARKGRAY}HOME_DIR${RESET}   $([ -n "$home_dir" ] && echo "${UNDERLINE}${DARKGRAY}$home_dir${RESET} ($home_dir_info)" || echo "${YELLOW}none${RESET} (not set and JeredMgr is not located inside a home directory, so '~' can't be used)")"
-	echo -e "   ${DARKGRAY}DATA_DIR${RESET}   $([ -n "$data_dir" ] && format_path "$data_dir/<project-name>" || echo "not set (no ${DARKGRAY}JEREDMGR_DATA_DIR${RESET} for projects)")"
-	echo -e "   ${DARKGRAY}LOGS_DIR${RESET}   $([ -n "$logs_dir" ] && format_path "$logs_dir/<project-name>" || echo "not set (no ${DARKGRAY}JEREDMGR_LOGS_DIR${RESET} for projects)")"
+	echo -e "   $(format_variable "HOME_DIR"): $([ -n "$home_dir" ] && echo "${UNDERLINE}${DARKGRAY}$home_dir${RESET} ($home_dir_info)" || echo "${YELLOW}none${RESET} (not set and JeredMgr is not located inside a home directory, so '~' can't be used)")"
+	echo -e "   $(format_variable "DATA_DIR"): $([ -n "$data_dir" ] && format_path "$data_dir/<project-name>" && echo -e " (available as $(format_variable "JEREDMGR_DATA_DIR"))" || echo "not set (no $(format_variable "JEREDMGR_DATA_DIR") for projects)")"
+	echo -e "   $(format_variable "LOGS_DIR"): $([ -n "$logs_dir" ] && format_path "$logs_dir/<project-name>" && echo -e " (available as $(format_variable "JEREDMGR_LOGS_DIR"))" || echo "not set (no $(format_variable "JEREDMGR_LOGS_DIR") for projects)")"
 	exit 0
 fi
 
