@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.1.0                                                   #
+# JeredMgr 1.1.1                                                   #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -72,9 +72,11 @@ format_option() {  # args: $option, reads: none, sets: none
 }
 
 # Utility: Format paths
-format_path() {  # args: $path, reads: none, sets: none
+format_path() {  # args: $path, reads: $home_dir, sets: none
 	local path="$1"
-	path="${path/#$HOME/\~}"  # Replace home directory with ~
+	if [ -n "$home_dir" ] && { [ "$path" = "$home_dir" ] || [[ "$path" == "$home_dir/"* ]]; }; then
+		path="~${path#"$home_dir"}"  # Replace home directory with ~ (the same directory JeredMgr expands '~' to)
+	fi
 	echo -e "${UNDERLINE}${DARKGRAY}${path//${RESET}/${RESET}${UNDERLINE}${DARKGRAY}}${RESET}"
 }
 
@@ -111,7 +113,7 @@ list_commands() {  # args: none, reads: none, sets: none
 	format_header "# Available commands:"
 	echo -e "   $(format_command "help")                Show help"
 	echo -e "   $(format_command "add")                 Add a new (for now disabled) project (create its $(format_path ".env") file)"
-	echo -e "   $(format_command "remove")              Remove a project (check for it being disabled, then delete its $(format_path ".env") file)"
+	echo -e "   $(format_command "remove")              Remove project(s) (check for them being disabled, then delete their $(format_path ".env") file)"
 	echo -e "   $(format_command "list")                List all projects"
 	echo -e "   $(format_command "enable") $(format_project "[project]")    Install and enable project(s), run again to re-install"
 	echo -e "   $(format_command "disable") $(format_project "[project]")   Disable and uninstall project(s)"
@@ -119,7 +121,7 @@ list_commands() {  # args: none, reads: none, sets: none
 	echo -e "   $(format_command "stop") $(format_project "[project]")      Stop project(s)"
 	echo -e "   $(format_command "restart") $(format_project "[project]")   Restart enabled project(s)"
 	echo -e "   $(format_command "status") $(format_project "[project]")    Show status (enabled + running) and extended status with explicit project name"
-	echo -e "   $(format_command "logs") $(format_project "<project>")      Show logs for one project"
+	echo -e "   $(format_command "logs") $(format_project "<project>")      Show logs for project(s)"
 	echo -e "   $(format_command "path") $(format_project "<project>")      Get project's path (useful with ${BOLD}\`cd \$(jm path <project>)\`${RESET})"
 	echo -e "   $(format_command "config") $(format_project "<project>")    Get project's config ($(format_path ".env")) file path (useful with ${BOLD}\`less \$(jm config <project>)\`${RESET})"
 	echo -e "   $(format_command "file") $(format_project "<project>")      Get project's $(format_path "docker-compose.yml") or $(format_path "<project-name>.service") file path (useful with ${BOLD}\`less \$(jm file <project>)\`${RESET})"
@@ -128,18 +130,19 @@ list_commands() {  # args: none, reads: none, sets: none
 	echo -e "   $(format_command "update") $(format_project "[project]")    Update project(s) using git. With all projects, self-update is run at first. If you don't want that, use ${ITALIC}${DARKGRAY}'++'${RESET} as project name."
 	echo -e "   $(format_command "self-update") | $(format_command "sup")   Update manager script"
 	echo -e ""
-	format_header "# Project specification:j"
+	format_header "# Project specification:"
 	echo -e "   - A project name can contain ${ITALIC}${DARKGRAY}'+'${RESET} as wildcard for matching projects"
+	echo -e "   - Several projects can be given as one argument, separated by a comma without spaces (e.g. ${ITALIC}${DARKGRAY}'foo,bar'${RESET}). Each entry can be a name, a ${ITALIC}${DARKGRAY}'+'${RESET} wildcard, or ${ITALIC}${DARKGRAY}'.'${RESET}. An explicit list is used as given"
 	echo -e "   - If no project name is provided (select all projects) or the wildcard matches multiple projects, a prompt will ask for confirmation"
 	echo -e "   - If the special project name ${ITALIC}${DARKGRAY}'+'${RESET} is used, the command will be for all projects without confirmation"
 	echo -e "   - If the special project name ${ITALIC}${DARKGRAY}'.'${RESET} is used, the current directory is walked up until a project's path matches, otherwise the command fails"
 	echo -e ""
-	format_header "# Options and parameters:j"
+	format_header "# Options and parameters:"
 	echo -e "   $(format_option "-q"), $(format_option "--quiet")                 Suppress prompts (for automation)"
 	echo -e "   $(format_option "-f"), $(format_option "--force")                 Force actions without confirmation prompts (use with caution)"
 	echo -e "   $(format_option "-s"), $(format_option "--no-status-check")       Don't retry checking status after starting or stopping a project"
 	echo -e "   $(format_option "-r"), $(format_option "--no-restart")            Don't restart project(s) after updating"
-	echo -e "   $(format_option "-n"), $(format_option "--number-of-lines") ${ITALIC}${DARKGRAY}<n>${RESET}   Show ${ITALIC}${DARKGRAY}n${RESET} log lines or use ${ITALIC}${DARKGRAY}'f'${RESET} (follow) for $(format_command "logs") command (default: follow / for all projects $LOG_LINES)"
+	echo -e "   $(format_option "-n"), $(format_option "--number-of-lines") ${ITALIC}${DARKGRAY}<n>${RESET}   Show ${ITALIC}${DARKGRAY}n${RESET} log lines or use ${ITALIC}${DARKGRAY}'f'${RESET} (follow) for $(format_command "logs") command (default: follow for one project, $LOG_LINES lines when several are selected)"
 }
 
 # Command: Print detailed help and workflow information for JeredMgr.
@@ -1411,7 +1414,7 @@ command_status() {  # args: $project_name, reads: $enabled $type $path $project_
 }
 
 # Command: Show logs for a project using the appropriate method for its type.
-command_logs() {  # args: $project_name, reads: $type $path $project_name $all_projects $parameter_lines, sets: none
+command_logs() {  # args: $project_name, reads: $type $path $project_name $multiple_projects $parameter_lines, sets: none
 	load_project_values "$1" || return 1
 	if ! $type_checked; then
 		format_warning "Unknown or unsupported type '$type', skipping logs."
@@ -1423,14 +1426,14 @@ command_logs() {  # args: $project_name, reads: $type $path $project_name $all_p
 				format_warning "No valid docker compose file found, cannot show logs."
 				return 1
 			fi
-			docker compose -f "$compose_file" --project-directory "$compose_project_dir" "${compose_name_args[@]}" logs $(! $all_projects && [ "$parameter_lines" = "f" ] && echo "-f" || echo "-n ${parameter_lines//f/$LOG_LINES}")
+			docker compose -f "$compose_file" --project-directory "$compose_project_dir" "${compose_name_args[@]}" logs $(! $multiple_projects && [ "$parameter_lines" = "f" ] && echo "-f" || echo "-n ${parameter_lines//f/$LOG_LINES}")
 			;;
 		service)
 			if ! check_service_file; then
 				format_warning "No valid service file found, cannot show logs."
 				return 1
 			fi
-			journalctl -u "$project_name" $(! $all_projects && [ "$parameter_lines" = "f" ] && echo "-f" || echo "-n ${parameter_lines//f/$LOG_LINES}")
+			journalctl -u "$project_name" $(! $multiple_projects && [ "$parameter_lines" = "f" ] && echo "-f" || echo "-n ${parameter_lines//f/$LOG_LINES}")
 			;;
 		scripts)
 			if [ -f "$path/logs.sh" ]; then
@@ -1651,9 +1654,17 @@ update_docker_images() {
 			format_error "Failed to get docker compose config"
 			return 1
 		}
-		local images=$(echo "$config_output" | grep -E '^[ \t]+image: ' | awk '{ sub(/^[ \t]+image: +/, ""); sub(/[ \t].*$/, ""); print }')
+		# skip images of services with a build section: they only exist locally and are rebuilt by run_install
+		local images=$(echo "$config_output" | awk '
+			function flush() { if (image != "" && !build) print image; image = ""; build = 0 }
+			/^[^ \t]/ { flush(); in_services = ($0 ~ /^services:/); next }
+			in_services && /^  [^ \t]/ { flush(); next }
+			in_services && /^    build:/ { build = 1 }
+			in_services && /^    image: / { image = $2 }
+			END { flush() }
+		')
 		if [ -z "$images" ]; then
-			format_warning "No images to possibly update found in docker compose file."
+			echo "No pullable images found in docker compose file (services with a build section are rebuilt on install)."
 		else
 			echo "Checking for new docker images:"
 			local updated=0
@@ -1836,60 +1847,82 @@ resolve_dot_project_ref() {  # args: none, reads: $project_name $original_dir $P
 }
 
 # Utility: Prompt the user to confirm multiple projects or error for single-project commands.
-check_projects_arg() {  # args: $can_multiple $verb, reads: $project_name $option_quiet, sets: $all_projects $multiple_projects $projects_list
+check_projects_arg() {  # args: $can_multiple $verb [$exact], reads: $project_name $option_quiet, sets: $project_name $all_projects $multiple_projects $projects_list
 	local can_multiple="$1"
 	local verb="$2"  # can be empty, then no confirmation is asked
+	local exact="$3"  # "exact": full project names only (no '+', no '.'), used by remove
+	local spec="$project_name"
+	local all_names=$(ls -1 "$PROJECTS_DIR"/*.env 2>/dev/null | xargs -n1 basename -s .env)
 
-	resolve_dot_project_ref
+	if [ "$exact" = "exact" ] && { [ -z "$spec" ] || [[ "$spec" == *[+.]* ]]; }; then
+		format_error "Please specify full project name(s) without '+' or '.'!"
+		exit 1
+	fi
 
-	if [ -z "$project_name" ] || [ "$project_name" = "+" ]; then  # If no project name given or exactly +, handle all projects case
-		all_projects=true
-		multiple_projects=true
-		# Get all project names
-		projects_list=$(ls -1 "$PROJECTS_DIR"/*.env 2>/dev/null | xargs -n1 basename -s .env)
-		if [ -z "$projects_list" ]; then
+	if [ -z "$spec" ] || [ "$spec" = "+" ]; then  # No project name or exactly '+': all projects ('+' is the shortcut without confirmation)
+		if [ -z "$all_names" ]; then
 			format_error "No projects found in $(format_path "$PROJECTS_DIR")."
 			exit 1
 		fi
-		local count_projects=$(echo "$projects_list" | wc -l)
 		if ! $can_multiple; then
 			format_error "Please specify a project name!"
 			exit 1
 		fi
-		if ! $option_quiet && [ -n "$verb" ] && [ "$project_name" != "+" ]; then  # if project_name is exactly +, we don't ask for confirmation, this is a shortcut
+		all_projects=true
+		multiple_projects=true
+		projects_list="$all_names"
+		local count_projects=$(echo "$projects_list" | wc -l)
+		if ! $option_quiet && [ -n "$verb" ] && [ -z "$spec" ]; then
 			echo "Found $count_projects projects: $(echo "$projects_list" | sed 's/$/,/' | tr '\n' ' ' | sed 's/, $//')"
 			prompt_yes_no "Are you sure you want to $verb ALL $count_projects projects?" || { echo "Cancelled."; exit 0; }
 		fi
-	elif [[ "$project_name" == *+* ]]; then  # Handle wildcard matching if project_name contains +
-		local pattern=${project_name//+/.*}
-		projects_list=$(ls -1 "$PROJECTS_DIR"/*.env 2>/dev/null | xargs -n1 basename -s .env | grep -E "^${pattern}$" || true)
-		if [ -z "$projects_list" ]; then
-			format_error "No projects match pattern '$project_name'!"
+	else  # Otherwise a comma-separated list (a single name is a list with one entry), each entry a name, a '+' wildcard, or '.'
+		if [[ "$spec" == ,* ]] || [[ "$spec" == *, ]] || [[ "$spec" == *,,* ]] || [[ "$spec" =~ [[:space:]] ]]; then
+			format_error "Separate project names with a comma and no spaces (e.g. 'foo,bar')."
 			exit 1
 		fi
-		local count_matches=$(echo "$projects_list" | wc -l)
-		if [ $count_matches -eq 1 ]; then
+		local segments segment matches
+		local wildcard_expanded=false  # only a wildcard matching several projects asks for confirmation, explicit names are used as given
+		IFS=',' read -ra segments <<< "$spec"
+		projects_list=""
+		for segment in "${segments[@]}"; do
+			if [ "$segment" = "." ]; then
+				project_name="."
+				resolve_dot_project_ref
+				matches="$project_name"
+			elif [[ "$segment" == *+* ]]; then
+				matches=$(echo "$all_names" | grep -E "^${segment//+/.*}$")
+				if [ -z "$matches" ]; then
+					format_error "No projects match pattern '$segment'!"
+					exit 1
+				fi
+				[ $(echo "$matches" | wc -l) -gt 1 ] && wildcard_expanded=true
+			elif [ -f "$PROJECTS_DIR/$segment.env" ]; then
+				matches="$segment"
+			else
+				format_error "Project $(format_project "$segment") not found."
+				exit 1
+			fi
+			projects_list+="${projects_list:+$'\n'}$matches"
+		done
+		projects_list=$(echo "$projects_list" | awk '!seen[$0]++')  # remove duplicates, keep order
+
+		local count_list=$(echo "$projects_list" | wc -l)
+		if [ $count_list -eq 1 ]; then
 			project_name="$projects_list"
 			multiple_projects=false
 		else
 			if ! $can_multiple; then
-				format_error "Pattern '$project_name' is ambiguous. Multiple matching projects:"
+				format_error "'$spec' selects multiple projects:"
 				echo "$projects_list" 1>&2
 				exit 1
 			fi
 			multiple_projects=true
-			if ! $option_quiet && [ -n "$verb" ]; then
-				local total_projects=$(ls -1 "$PROJECTS_DIR"/*.env 2>/dev/null | wc -l)
-				echo "Found $count_matches matching projects (of $total_projects total): $(echo "$projects_list" | sed 's/$/,/' | tr '\n' ' ' | sed 's/, $//')"
-				prompt_yes_no "Are you sure you want to $verb these $count_matches projects?" || { echo "Cancelled."; exit 0; }
+			if $wildcard_expanded && ! $option_quiet && [ -n "$verb" ]; then
+				echo "Found $count_list matching projects (of $(echo "$all_names" | wc -l) total): $(echo "$projects_list" | sed 's/$/,/' | tr '\n' ' ' | sed 's/, $//')"
+				prompt_yes_no "Are you sure you want to $verb these $count_list projects?" || { echo "Cancelled."; exit 0; }
 			fi
 		fi
-	elif [ ! -f "$PROJECTS_DIR/$project_name.env" ]; then  # Single project case
-		format_error "Project $(format_project "$project_name") not found."
-		exit 1
-	else
-		projects_list="$project_name"
-		multiple_projects=false
 	fi
 }
 
@@ -1974,12 +2007,6 @@ while [[ $# -gt 0 ]]; do
 	esac
 done
 
-if [ -z "$command" ]; then
-	echo "Welcome to JeredMgr ${BOLD}${GREEN}$VERSION${RESET}!"
-	list_commands
-	exit 0
-fi
-
 if [ "$command" = "help" ]; then
 	show_help
 	exit 0
@@ -1999,7 +2026,9 @@ if [ -n "$home_dir" ]; then
 		format_error "HOME_DIR in $(format_path "$GLOBAL_CONFIG_FILE") must be an absolute path."
 		exit 1
 	fi
+	home_dir_info="set in global config"
 else
+	home_dir_info="not set, first parent of JeredMgr's directory that is a user's home directory"
 	home_dirs=$(getent passwd 2>/dev/null | cut -d: -f6)
 	dir=$(pwd)
 	while [ "$dir" != "/" ]; do
@@ -2020,6 +2049,18 @@ if [ -n "$logs_dir" ]; then
 	logs_dir=$(readlink -m "$logs_dir")
 fi
 
+if [ -z "$command" ]; then
+	echo "Welcome to JeredMgr ${BOLD}${GREEN}$VERSION${RESET}!"
+	list_commands
+	echo -e ""
+	format_header "# Current global config ($(format_path "$GLOBAL_CONFIG_FILE")$([ -f "$GLOBAL_CONFIG_FILE" ] || echo " not present")):"
+	# HOME_DIR styled like format_path, but not shown as '~', as that's what it defines
+	echo -e "   ${DARKGRAY}HOME_DIR${RESET}   $([ -n "$home_dir" ] && echo "${UNDERLINE}${DARKGRAY}$home_dir${RESET} ($home_dir_info)" || echo "${YELLOW}none${RESET} (not set and JeredMgr is not located inside a home directory, so '~' can't be used)")"
+	echo -e "   ${DARKGRAY}DATA_DIR${RESET}   $([ -n "$data_dir" ] && format_path "$data_dir/<project-name>" || echo "not set (no ${DARKGRAY}JEREDMGR_DATA_DIR${RESET} for projects)")"
+	echo -e "   ${DARKGRAY}LOGS_DIR${RESET}   $([ -n "$logs_dir" ] && format_path "$logs_dir/<project-name>" || echo "not set (no ${DARKGRAY}JEREDMGR_LOGS_DIR${RESET} for projects)")"
+	exit 0
+fi
+
 mkdir -p "$PROJECTS_DIR" || { format_error "Failed to create projects directory $(format_path "$PROJECTS_DIR")!"; exit 1; }
 ensure_git_installed
 
@@ -2029,7 +2070,8 @@ case $command in
 		command_add "$project_name" || exit_code=$?
 		;;
 	remove)
-		# remove should need the full project name without wildcard, so we won't use check_projects_arg or resolve_dot_project_ref
+		# full project names only, comma-separated without spaces; no wildcard and no '.'
+		check_projects_arg true "" exact || exit 1
 		for_each_project "remove" || exit_code=$?
 		;;
 	list)

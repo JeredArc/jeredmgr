@@ -3,6 +3,16 @@
 JeredMgr is a tool that helps you install, run, and update multiple projects using Docker containers, systemd services, or custom scripts.
 
 
+## Changes in 1.1.1
+
+- Several projects can be given as one comma-separated argument without spaces, e.g. `jm restart foo,bar` or `jm start foo,audio-+,.`. Each entry can be a name, a `+` wildcard or `.`. Only wildcards matching several projects ask for confirmation, explicit names are used as given.
+- `remove` accepts several projects (comma-separated full names, still no wildcard and no `.`).
+- `logs` only follows when a single project is selected, with several projects (also via wildcard) it shows the last lines of each.
+- `update` no longer tries to pull images of services with a `build` section (they only exist locally and failed the update). These are rebuilt on install after a git update instead.
+- Running JeredMgr without arguments additionally shows the current global config (`HOME_DIR`, including how it was determined, `DATA_DIR`, `LOGS_DIR`).
+- Paths in the output are abbreviated with `~` based on the same home directory that `~` is expanded to (see `HOME_DIR`), instead of `$HOME`.
+
+
 ## ⚠️ Breaking changes in 1.1.0
 
 - **Full git repo directory renamed:** Projects using `SUBDIR` now keep their full clone in `projects/<project-name>.fullgitrepo` instead of `projects/<project-name>-fullgitrepo`. Existing directories are renamed automatically (and the project path link is re-pointed) the next time JeredMgr loads such a project.
@@ -84,6 +94,11 @@ It's as simple as that!
 
 # Update a project
 ./jeredmgr.sh update <project>
+
+# Select several projects: comma-separated, '+' as wildcard, '.' for the project of the current directory
+./jeredmgr.sh restart foo,bar
+./jeredmgr.sh update audio-+
+./jeredmgr.sh status .
 
 # Run any docker compose command in a docker project's context
 ./jeredmgr.sh dc <project> ps
