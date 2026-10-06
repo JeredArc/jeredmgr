@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.1.5                                                  #
+# JeredMgr 1.1.6                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -133,6 +133,7 @@ list_commands() {  # args: none, reads: none, sets: none
 	echo -e "   $(format_command "shell") $(format_project "<project>")     Open a shell in the project container"
 	echo -e "   $(format_command "dc") $(format_project "<project>") ${ITALIC}${DARKGRAY}<args>${RESET}  Run ${BOLD}\`docker compose\`${RESET} with arbitrary arguments in the project's context (all arguments after the project are passed unparsed)"
 	echo -e "   $(format_command "update") $(format_project "[project]")    Update project(s) using git. With all projects, self-update is run at first. If you don't want that, use ${ITALIC}${DARKGRAY}'++'${RESET} as project name."
+	echo -e "   $(format_command "checkout") $(format_project "<project>") ${ITALIC}${DARKGRAY}<ref>${RESET}  Set the project's ${DARKGRAY}REF${RESET} to a branch (followed on update) or a tag/commit (pinned, e.g. ${ITALIC}${DARKGRAY}'HEAD'${RESET} for the current one) and check it out, updating the project if enabled"
 	echo -e "   $(format_command "self-update") | $(format_command "sup")   Update manager script"
 	echo -e ""
 	format_header "# Project specification:"
@@ -144,7 +145,7 @@ list_commands() {  # args: none, reads: none, sets: none
 	echo -e ""
 	format_header "# Options and parameters:"
 	echo -e "   $(format_option "-q"), $(format_option "--quiet")                 Suppress prompts (for automation)"
-	echo -e "   $(format_option "-f"), $(format_option "--force")                 Force actions without confirmation prompts (use with caution)"
+	echo -e "   $(format_option "-f"), $(format_option "--force")                 Force actions without confirmation prompts (use with caution), check out a ${DARKGRAY}REF${RESET} despite local changes, reset to upstream if fast-forward fails on update"
 	echo -e "   $(format_option "-s"), $(format_option "--no-status-check")       Don't retry checking status after starting or stopping a project"
 	echo -e "   $(format_option "-r"), $(format_option "--no-restart")            Don't restart project(s) after updating"
 	echo -e "   $(format_option "-n"), $(format_option "--number-of-lines") ${ITALIC}${DARKGRAY}<n>${RESET}   Show ${ITALIC}${DARKGRAY}n${RESET} log lines or use ${ITALIC}${DARKGRAY}'f'${RESET} (follow) for $(format_command "logs") command (default: follow for one project, $LOG_LINES lines when several are selected)"
@@ -227,6 +228,7 @@ show_help() {  # args: none, reads: none, sets: none
 	echo -e "- Else:"
 	echo -e "  - Update the project using git if it's a git repository"
 	echo -e "    (with ${DARKGRAY}SUBDIR${RESET}, install and restart only happen if the sub directory or one of the ${DARKGRAY}WATCH_PATHS${RESET} changed)"
+	echo -e "    (with a ${DARKGRAY}REF${RESET} branch, that branch is checked out and followed, with a ${DARKGRAY}REF${RESET} tag or commit, it is checked out and not updated)"
 	echo -e "  - Pull new images from the docker repositories if it's a docker project"
 	echo -e ""
 	format_header "# Further notes:"
@@ -235,6 +237,10 @@ show_help() {  # args: none, reads: none, sets: none
 	echo -e "  The full repo will then be cloned into $(format_path "<project-name>.fullgitrepo") in JeredMgr's projects directory,"
 	echo -e "  and the project path will be set up as a link pointing to the sub directory."
 	echo -e "  Additional paths inside the repo (e.g. shared config) can be set as space-separated ${DARKGRAY}WATCH_PATHS${RESET} in the $(format_path ".env") file."
+	echo -e ""
+	echo -e "- To use a different branch or pin a tag or commit, set the ${DARKGRAY}REF${RESET} variable in the $(format_path ".env") file or use the $(format_command "checkout") command"
+	echo -e "  A remote branch name takes precedence over a tag or commit with the same name. Without ${DARKGRAY}REF${RESET}, the currently checked out branch is followed."
+	echo -e "  Switching is refused if the repository has local changes to tracked files, unless $(format_option "-f")/$(format_option "--force") is used (git then keeps non-conflicting changes)."
 	echo -e ""
 	echo -e "- Global settings can be stored in $(format_path "global-config.env") in JeredMgr's directory:"
 	echo -e "  - ${DARKGRAY}HOME_DIR${RESET}: Directory used for '~' (default: the first parent of JeredMgr's directory that is a user's home directory)"
@@ -363,6 +369,42 @@ sync_git_origin_url() {  # args: [$origin_url], reads: $gitpath $repo_url $use_g
 	git -C "$gitpath" remote set-url origin "$origin_url"
 }
 
+ref_is_branch=false
+# Utility: check out the project's REF, a remote branch is switched to (and followed on update), a tag or commit is checked out detached (pinned)
+checkout_git_ref() {  # args: none, reads: $gitpath $ref $option_force, sets: $ref_is_branch
+	ref_is_branch=false
+	if [ -z "$ref" ]; then return 0; fi
+	# Fetch (including all tags) only if REF is unknown locally
+	if ! git -C "$gitpath" rev-parse --verify --quiet "refs/remotes/origin/$ref" >/dev/null && ! git -C "$gitpath" rev-parse --verify --quiet "$ref^{commit}" >/dev/null; then
+		echo "Fetching to find $(format_variable "REF") '$ref' ..."
+		git -C "$gitpath" fetch --quiet --tags || { format_error "Failed to fetch from remote."; return 1; }
+	fi
+	local target_hash
+	if git -C "$gitpath" rev-parse --verify --quiet "refs/remotes/origin/$ref" >/dev/null; then
+		ref_is_branch=true
+		if [ "$(git -C "$gitpath" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$ref" ]; then return 0; fi
+	elif target_hash=$(git -C "$gitpath" rev-parse --verify --quiet "$ref^{commit}"); then
+		if [ "$(git -C "$gitpath" rev-parse HEAD 2>/dev/null)" = "$target_hash" ]; then return 0; fi
+	else
+		format_error "$(format_variable "REF") '$ref' is neither a remote branch nor a tag or commit in $(format_path "$gitpath")."
+		return 1
+	fi
+	if [ -n "$(git -C "$gitpath" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+		if ! $option_force; then
+			format_error "Repository $(format_path "$gitpath") has local changes, cannot check out '$ref'. Use $(format_option "-f")/$(format_option "--force") to check out anyway (git keeps non-conflicting changes)."
+			return 1
+		fi
+		format_warning "Repository $(format_path "$gitpath") has local changes, checking out '$ref' anyway because $(format_option "-f")/$(format_option "--force") was used."
+	fi
+	if $ref_is_branch; then
+		echo "Switching to branch '$ref' ..."
+		git -C "$gitpath" switch --quiet "$ref" || { format_error "Failed to switch to branch '$ref'."; return 1; }
+	else
+		echo "Checking out pinned '$ref' ($(git -C "$gitpath" rev-parse --short "$target_hash")) ..."
+		git -C "$gitpath" switch --quiet --detach "$target_hash" || { format_error "Failed to check out '$ref'."; return 1; }
+	fi
+}
+
 
 # Utility: read value from .env file (run in subshell, don't use format_ functions here!)
 read_env_value() {  # args: $key, reads: env_file, sets: none
@@ -414,7 +456,7 @@ check_project_type() {  # args: none, reads: $type, sets: $type_checked
 }
 
 # Utility: load project values
-load_project_values() {  # args: $project_name, reads: $home_dir $data_dir $logs_dir, sets: $project_name $env_file $enabled $repo_url $subdir $watch_paths $path $gitpath $use_global_pat $local_pat $type $type_checked $JEREDMGR_DATA_DIR $JEREDMGR_LOGS_DIR
+load_project_values() {  # args: $project_name, reads: $home_dir $data_dir $logs_dir, sets: $project_name $env_file $enabled $repo_url $ref $subdir $watch_paths $path $gitpath $use_global_pat $local_pat $type $type_checked $JEREDMGR_DATA_DIR $JEREDMGR_LOGS_DIR
 	project_name="$1"
 	env_file="$PROJECTS_DIR/$project_name.env"
 	if [ ! -f "$env_file" ]; then
@@ -427,6 +469,7 @@ load_project_values() {  # args: $project_name, reads: $home_dir $data_dir $logs
 		enabled=false
 	fi
 	repo_url=$(read_env_value "REPO_URL")
+	ref=$(read_env_value "REF")
 	subdir=$(read_env_value "SUBDIR")
 	watch_paths=$(read_env_value "WATCH_PATHS")
 	local watch_path watch_paths_array
@@ -795,7 +838,7 @@ run_script() {  # args: $script, reads: $path, sets: none
 ################################################################################
 
 # Command: Add a new project by prompting the user and creating a .env file.
-command_add() {  # args: $project_name, reads: none, sets: $project_name $env_file $owner $repo $use_global_pat $local_pat $path $type $repo_url $repo_pat_url
+command_add() {  # args: $project_name, reads: none, sets: $project_name $env_file $owner $repo $ref $use_global_pat $local_pat $path $type $repo_url $repo_pat_url
 	local project_name="$1"
 
 	if $option_quiet; then
@@ -821,6 +864,7 @@ command_add() {  # args: $project_name, reads: none, sets: $project_name $env_fi
 	if [ -z "$owner" ]; then
 		echo "Project will not have a GitHub repository."
 		repo=""
+		ref=""
 		subdir=""
 		watch_paths=""
 		local_pat=""
@@ -831,6 +875,7 @@ command_add() {  # args: $project_name, reads: none, sets: $project_name $env_fi
 		if [ -z "$repo" ]; then
 			repo=$project_name
 		fi
+		read -p "Branch to follow or tag/commit to pin (default: remote default branch): " ref
 		read -p "Subdirectory inside git repo (default: none): " subdir
 		watch_paths=""
 		if [ -n "$subdir" ]; then
@@ -860,6 +905,7 @@ command_add() {  # args: $project_name, reads: none, sets: $project_name $env_fi
 	{
 		echo "ENABLED=false"
 		echo "REPO_URL=$repo_url"
+		[ -n "$ref" ] && echo "REF=$ref"
 		[ -n "$subdir" ] && echo "SUBDIR=$subdir"
 		[ -n "$watch_paths" ] && echo "WATCH_PATHS=$watch_paths"
 		echo "USE_GLOBAL_PAT=$use_global_pat"
@@ -928,7 +974,7 @@ command_list() {  # args: $project_name, reads: $enabled $project_name $path, se
 }
 
 # Utility: Run setup.sh if present and perform type-specific install/setup logic for the project.
-run_install() {  # args: none, reads: $repo_url $use_global_pat $local_pat $path $type $project_name $gitpath $subdir, sets: none
+run_install() {  # args: none, reads: $repo_url $ref $use_global_pat $local_pat $path $type $project_name $gitpath $subdir, sets: none
 	# check if type is supported
 	if ! $type_checked; then
 		format_warning "Unknown or unsupported type '$type', skipping install."
@@ -963,6 +1009,7 @@ run_install() {  # args: none, reads: $repo_url $use_global_pat $local_pat $path
 			return 1
 		fi
 		sync_git_origin_url
+		checkout_git_ref || return 1
 
 		if [ -n "$subdir" ]; then  # Subdir mode: full repo is inside projects dir
 			# Verify subdir exists in the repository
@@ -1336,7 +1383,7 @@ command_restart() {  # args: $project_name, reads: $enabled $type $path $project
 }
 
 # Command: Show the status of a project, including enabled/running state and git status.
-command_status() {  # args: $project_name, reads: $enabled $type $path $project_name $repo_url $use_global_pat $local_pat $all_projects $gitpath, sets: none
+command_status() {  # args: $project_name, reads: $enabled $type $path $project_name $repo_url $ref $use_global_pat $local_pat $all_projects $gitpath, sets: none
 	load_project_values "$1" || return 1
 	echo -e "Enabled: $(format_status "$($enabled && echo "✓" || echo "✗")")"
 	if ! $type_checked; then
@@ -1372,6 +1419,9 @@ command_status() {  # args: $project_name, reads: $enabled $type $path $project_
 	esac
 	echo -e "Project path: $(format_path "$path")"
 	echo -e "Repository: $(format_path "$repo_url")"
+	if [ -n "$ref" ]; then
+		echo -e "Ref: $(format_path "$ref")"
+	fi
 	if [ -n "$subdir" ]; then
 		echo -e "Subdirectory: $(format_path "$subdir")"
 	fi
@@ -1394,12 +1444,22 @@ command_status() {  # args: $project_name, reads: $enabled $type $path $project_
 	# Check for git updates
 	echo -n "Git status: "
 	if check_git_path "$gitpath"; then
-		local error_msg
-		error_msg=$(check_git_upstream "$gitpath" 2>&1)
-		if [ $? -eq 0 ]; then
-			echo -e "${GREEN}Up to date!${RESET}$([ $type = "docker" ] && echo " (There might be new docker images available though)")"
+		if [ -n "$ref" ] && ! git -C "$gitpath" rev-parse --verify --quiet "refs/remotes/origin/$ref" >/dev/null; then  # pinned to a tag or commit
+			if [ "$(git -C "$gitpath" rev-parse HEAD 2>/dev/null)" = "$(git -C "$gitpath" rev-parse --verify --quiet "$ref^{commit}")" ]; then
+				echo -e "${GREEN}Pinned to '$ref'${RESET} ($(git -C "$gitpath" rev-parse --short HEAD))"
+			else
+				format_warning "Pinned $(format_variable "REF") '$ref' is not checked out, run $(format_command "update") or $(format_command "enable")"
+			fi
+		elif [ -n "$ref" ] && [ "$(git -C "$gitpath" rev-parse --abbrev-ref HEAD 2>/dev/null)" != "$ref" ]; then
+			format_warning "Branch $(format_variable "REF") '$ref' is not checked out, run $(format_command "update") or $(format_command "enable")"
 		else
-			format_warning "${error_msg:-Update available}"
+			local error_msg
+			error_msg=$(check_git_upstream "$gitpath" 2>&1)
+			if [ $? -eq 0 ]; then
+				echo -e "${GREEN}Up to date!${RESET}$([ $type = "docker" ] && echo " (There might be new docker images available though)")"
+			else
+				format_warning "${error_msg:-Update available}"
+			fi
 		fi
 	else
 		format_warning "Git repository not set up!"
@@ -1594,7 +1654,7 @@ command_dc() {  # args: $project_name, reads: $type $dc_args, sets: none
 is_manager_updating=false
 did_git_update=false
 # Command: Update the git repository for a project.
-update_git_repo() {  # args: none, reads: $gitpath $repo_url $use_global_pat $local_pat $subdir $watch_paths $is_manager_updating, sets: $did_git_update
+update_git_repo() {  # args: none, reads: $gitpath $repo_url $ref $use_global_pat $local_pat $subdir $watch_paths $is_manager_updating $option_force, sets: $did_git_update
 	did_git_update=false
 	if ! check_git_path "$gitpath"; then
 		format_warning "Path is not a git repository, skipping git repository update."
@@ -1604,35 +1664,49 @@ update_git_repo() {  # args: none, reads: $gitpath $repo_url $use_global_pat $lo
 	sync_git_origin_url "$repo_pat_url"
 	echo "Fetching updates ..."
 	local previous_hash=$(git -C "$gitpath" rev-parse --short HEAD 2>/dev/null)
-	local local_branch=$(git -C "$gitpath" rev-parse --abbrev-ref HEAD 2>/dev/null)
-	local upstream_ref
-	upstream_ref=$(git -C "$gitpath" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null) || { echo "No upstream configured" 1>&2; return 1; }
 	git -C "$gitpath" fetch --quiet || { echo "Failed to fetch upstream" 1>&2; return 1; }
-	local behind
-	behind=$(git -C "$gitpath" rev-list --count "$local_branch..$upstream_ref" 2>/dev/null) || {
-		format_error "Failed to get commit count"
-		return 1
-	}
-	if ! [[ "$behind" =~ ^[0-9]+$ ]]; then
-		format_error "Invalid commit count returned by git ($behind)"
-		return 1
-	fi
-	if [ "$behind" -eq 0 ]; then
-		format_success "$($is_manager_updating && echo "JeredMgr" || echo "Git repository") is already up to date$($is_manager_updating && echo " ($VERSION)")!"
+	checkout_git_ref || return 1
+	if [ -n "$ref" ] && ! $ref_is_branch; then
+		format_success "Pinned to '$ref', skipping git repository update."
 	else
-		echo "Updating $($is_manager_updating && echo "JeredMgr from $VERSION" || echo "git repository") ($behind commits behind) ..."
-		startprogress ""
-		showprogress git -C "$gitpath" merge --ff-only "$upstream_ref" || {
-			endprogress "$(format_error "Update failed with exit code $?!")"
-			echo "$lastoutput"
+		local local_branch=$(git -C "$gitpath" rev-parse --abbrev-ref HEAD 2>/dev/null)
+		local upstream_ref
+		upstream_ref=$(git -C "$gitpath" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null) || { echo "No upstream configured" 1>&2; return 1; }
+		local behind
+		behind=$(git -C "$gitpath" rev-list --count "$local_branch..$upstream_ref" 2>/dev/null) || {
+			format_error "Failed to get commit count"
 			return 1
 		}
-		local current_hash=$(git -C "$gitpath" rev-parse --short HEAD 2>/dev/null)
-		if $is_manager_updating; then
-			endprogress "$(format_success "Self-update complete from $previous_hash to $current_hash")"
-		else
-			endprogress "$(format_success "Successfully updated git repository from $previous_hash to $current_hash")"
+		if ! [[ "$behind" =~ ^[0-9]+$ ]]; then
+			format_error "Invalid commit count returned by git ($behind)"
+			return 1
 		fi
+		if [ "$behind" -eq 0 ]; then
+			format_success "$($is_manager_updating && echo "JeredMgr" || echo "Git repository") is already up to date$($is_manager_updating && echo " ($VERSION)")!"
+		else
+			echo "Updating $($is_manager_updating && echo "JeredMgr from $VERSION" || echo "git repository") ($behind commits behind) ..."
+			startprogress ""
+			if showprogress git -C "$gitpath" merge --ff-only "$upstream_ref"; then
+				if $is_manager_updating; then
+					endprogress "$(format_success "Self-update complete from $previous_hash to $(git -C "$gitpath" rev-parse --short HEAD 2>/dev/null)")"
+				else
+					endprogress "$(format_success "Successfully updated git repository from $previous_hash to $(git -C "$gitpath" rev-parse --short HEAD 2>/dev/null)")"
+				fi
+			else
+				endprogress "$(format_error "Update failed with exit code $?!")"
+				echo "$lastoutput"
+				if $is_manager_updating || ! $option_force; then
+					$is_manager_updating || echo -e "Use $(format_option "-f")/$(format_option "--force") to reset to $upstream_ref (discarding local commits and changes to tracked files)."
+					return 1
+				fi
+				format_warning "Resetting to $upstream_ref because $(format_option "-f")/$(format_option "--force") was used, discarding local commits and changes to tracked files!"
+				git -C "$gitpath" reset --quiet --hard "$upstream_ref" || { format_error "Reset failed."; return 1; }
+				format_success "Successfully reset git repository from $previous_hash to $(git -C "$gitpath" rev-parse --short HEAD 2>/dev/null)"
+			fi
+		fi
+	fi
+	local current_hash=$(git -C "$gitpath" rev-parse --short HEAD 2>/dev/null)
+	if [ "$current_hash" != "$previous_hash" ]; then
 		did_git_update=true
 		# For SUBDIR projects, only changes in the subdirectory or in the watch paths require install and restart
 		if ! $is_manager_updating && [ -n "$subdir" ]; then
@@ -1750,6 +1824,44 @@ command_update() {  # args: $project_name, reads: $path $repo_url $use_global_pa
 	fi
 }
 
+# Command: Set the project's REF (branch to follow, or tag/commit to pin) and check it out, updating (installing and restarting) the project if enabled.
+command_checkout() {  # args: $project_name, reads: $checkout_ref $env_file $enabled $gitpath $repo_url $use_global_pat $local_pat, sets: $ref
+	load_project_values "$1" || return 1
+	if [ -z "$checkout_ref" ]; then
+		format_error "Please specify a branch, tag or commit to check out!"
+		return 1
+	fi
+	if ! check_git_path "$gitpath"; then
+		if [ -z "$repo_url" ]; then
+			format_error "Project $(format_project "$project_name") has no git repository."
+			return 1
+		fi
+		write_env_value "REF" "$checkout_ref"
+		format_success "Set $(format_variable "REF")=$checkout_ref, it will be checked out when the repository is cloned on $(format_command "enable")."
+		return
+	fi
+	repo_pat_url=$(get_repo_pat_url "$repo_url" "$use_global_pat" "$local_pat") || { format_error "Could not get repository PAT URL."; return 1; }
+	sync_git_origin_url "$repo_pat_url"
+	echo "Fetching updates ..."
+	git -C "$gitpath" fetch --quiet --tags || { format_error "Failed to fetch from remote."; return 1; }
+	# Keep remote branch and tag names, store anything else (e.g. HEAD or a short hash) as full commit hash
+	ref="$checkout_ref"
+	if [ "$ref" = "HEAD" ] || { ! git -C "$gitpath" rev-parse --verify --quiet "refs/remotes/origin/$ref" >/dev/null && ! git -C "$gitpath" rev-parse --verify --quiet "refs/tags/$ref" >/dev/null; }; then  # origin/HEAD exists, but isn't a branch
+		ref=$(git -C "$gitpath" rev-parse --verify --quiet "$checkout_ref^{commit}") || {
+			format_error "'$checkout_ref' is neither a remote branch nor a tag or commit in $(format_path "$gitpath")."
+			return 1
+		}
+	fi
+	write_env_value "REF" "$ref"
+	echo -e "Set $(format_variable "REF")=$ref in $(format_path "$env_file")."
+	if $enabled; then
+		command_update "$project_name" || { format_error "$(format_variable "REF") is set, but updating failed, fix the problem and run $(format_command "update") again."; return 1; }
+	else
+		checkout_git_ref || { format_error "$(format_variable "REF") is set, but checking out failed, fix the problem and run $(format_command "checkout") or $(format_command "enable") again."; return 1; }
+		format_success "Checked out '$ref', project is disabled, enable it with \`${BOLD}$SCRIPT_NAME enable $project_name${RESET}\`."
+	fi
+}
+
 # Command: Update the manager script itself from the remote repository.
 command_selfupdate() {  # args: none, reads: none, sets: none
 	if $option_internal_recursive; then
@@ -1758,6 +1870,7 @@ command_selfupdate() {  # args: none, reads: none, sets: none
 	fi
 	gitpath=$(dirname "$0")
 	repo_url="$SELFUPDATE_REPO_URL"
+	ref=""
 	use_global_pat=false
 	local_pat=""
 	is_manager_updating=true
@@ -1947,6 +2060,7 @@ option_no_restart=false
 option_internal_recursive=false
 parameter_lines="f"
 dc_args=()
+checkout_ref=""
 
 all_projects=false
 multiple_projects=false
@@ -2002,6 +2116,8 @@ while [[ $# -gt 0 ]]; do
 					dc_args=("$@")
 					break
 				fi
+			elif [ "$command" = "checkout" ] && [ -z "$checkout_ref" ]; then
+				checkout_ref="$1"
 			else
 				format_error "Too many arguments: $1"
 				list_commands
@@ -2146,6 +2262,10 @@ case $command in
 			echo "$dangling_docker_images"
 			! $option_quiet && prompt_yes_no "Do you want to remove them now?" && docker rmi -f $dangling_docker_hashes || echo "You can remove them later using ${BOLD}${DARKGRAY}\`docker rmi -f ${dangling_docker_hashes% }\`${RESET}"
 		fi
+		;;
+	checkout)
+		check_projects_arg false "" || exit 1
+		for_each_project "checkout" || exit_code=$?
 		;;
 	sup | self-update)
 		command_selfupdate || exit_code=$?
