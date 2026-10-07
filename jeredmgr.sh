@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.1.7                                                  #
+# JeredMgr 1.1.8                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -133,7 +133,7 @@ list_commands() {  # args: none, reads: none, sets: none
 	echo -e "   $(format_command "shell") $(format_project "<project>")     Open a shell in the project container"
 	echo -e "   $(format_command "dc") $(format_project "<project>") ${ITALIC}${DARKGRAY}<args>${RESET}  Run ${BOLD}\`docker compose\`${RESET} with arbitrary arguments in the project's context (all arguments after the project are passed unparsed)"
 	echo -e "   $(format_command "update") $(format_project "[project]")    Update project(s) using git. With all projects, self-update is run at first. If you don't want that, use ${ITALIC}${DARKGRAY}'++'${RESET} as project name."
-	echo -e "   $(format_command "checkout") $(format_project "<project>") ${ITALIC}${DARKGRAY}[ref]${RESET}  Set the project's ${DARKGRAY}REF${RESET} to a branch (followed on update) or a tag/commit (pinned, e.g. ${ITALIC}${DARKGRAY}'HEAD'${RESET} for the current one) and check it out, updating the project if enabled. With no ${ITALIC}${DARKGRAY}<ref>${RESET}, show the current ${DARKGRAY}REF${RESET} (branch, tag, or commit). ${ITALIC}${DARKGRAY}'-'${RESET} clears it"
+	echo -e "   $(format_command "checkout") $(format_project "<project>") ${ITALIC}${DARKGRAY}[ref]${RESET}  Set the project's ${DARKGRAY}REF${RESET} to a branch (followed on update) or a tag/commit (pinned, e.g. ${ITALIC}${DARKGRAY}'HEAD'${RESET} for the current one) and check it out, updating the project if enabled. With no ${ITALIC}${DARKGRAY}<ref>${RESET}, show the current ${DARKGRAY}REF${RESET} (branch, tag, or commit). ${ITALIC}${DARKGRAY}'-'${RESET} clears it and checks out the repository's default branch"
 	echo -e "   $(format_command "self-update") | $(format_command "sup")   Update manager script"
 	echo -e ""
 	format_header "# Project specification:"
@@ -240,7 +240,7 @@ show_help() {  # args: none, reads: none, sets: none
 	echo -e ""
 	echo -e "- To use a different branch or pin a tag or commit, set the ${DARKGRAY}REF${RESET} variable in the $(format_path ".env") file or use the $(format_command "checkout") command"
 	echo -e "  A remote branch name takes precedence over a tag or commit with the same name. Without ${DARKGRAY}REF${RESET}, the currently checked out branch is followed."
-	echo -e "  $(format_command "checkout") without a ${ITALIC}${DARKGRAY}<ref>${RESET} shows the current one. Pass ${ITALIC}${DARKGRAY}'-'${RESET} to clear ${DARKGRAY}REF${RESET}."
+	echo -e "  $(format_command "checkout") without a ${ITALIC}${DARKGRAY}<ref>${RESET} shows the current one. Pass ${ITALIC}${DARKGRAY}'-'${RESET} to clear ${DARKGRAY}REF${RESET} and check out the repository's default branch."
 	echo -e "  Switching is refused if the repository has local changes to tracked files, unless $(format_option "-f")/$(format_option "--force") is used (git then keeps non-conflicting changes)."
 	echo -e ""
 	echo -e "- Global settings can be stored in $(format_path "global-config.env") in JeredMgr's directory:"
@@ -440,10 +440,14 @@ ensure_project_dirs() {  # args: none, reads: $JEREDMGR_DATA_DIR $JEREDMGR_LOGS_
 write_env_value() {  # args: $key $value, reads: $env_file, sets: none
 	local key="$1"
 	local value="$2"
-	
-	grep -q "^${key}=" "$env_file" \
-		&& sed -i "s|^${key}=.*|${key}=${value}|" "$env_file" \
-		|| echo "${key}=${value}" >> "$env_file"
+	# Rewrite through a temporary file: macOS sed -i needs a backup suffix, GNU sed -i does not
+	if grep -q "^${key}=" "$env_file"; then
+		local env_tmp
+		env_tmp=$(mktemp) || { format_error "Failed to update $(format_variable "$key") in $(format_path "$env_file")."; return 1; }
+		sed "s|^${key}=.*|${key}=${value}|" "$env_file" > "$env_tmp" && mv "$env_tmp" "$env_file" || { rm -f "$env_tmp"; format_error "Failed to update $(format_variable "$key") in $(format_path "$env_file")."; return 1; }
+	else
+		echo "${key}=${value}" >> "$env_file" || { format_error "Failed to update $(format_variable "$key") in $(format_path "$env_file")."; return 1; }
+	fi
 	chmod 600 "$env_file"
 }
 
@@ -1099,7 +1103,7 @@ command_enable() {  # args: $project_name, reads: $env_file, sets: none
 	if $enabled; then
 		format_success "Successfully re-installed project $(format_project "$project_name"), it was already enabled."
 	else
-		write_env_value "ENABLED" "true"
+		write_env_value "ENABLED" "true" || return 1
 		format_success "Successfully installed and enabled project $(format_project "$project_name")."
 	fi
 	if $enabled && [ "$(get_running_status)" = "Yes" ]; then
@@ -1169,7 +1173,7 @@ command_disable() {  # args: $project_name, reads: $env_file $type $path, sets: 
 				;;
 		esac
 	fi
-	write_env_value "ENABLED" "false"
+	write_env_value "ENABLED" "false" || return 1
 	format_success "Successfully $($type_checked && echo "uninstalled and disabled" || echo "disabled") project $(format_project "$project_name")."
 }
 
@@ -1862,7 +1866,7 @@ command_checkout() {  # args: $project_name, reads: $checkout_ref $env_file $ena
 		else
 			echo -e "No $(format_variable "REF") is set."
 		fi
-		echo -e "Use \`${BOLD}$SCRIPT_NAME checkout $project_name -${RESET}\` to reset $(format_variable "REF"). Without $(format_variable "REF"), the currently checked out branch is followed."
+		echo -e "Use \`${BOLD}$SCRIPT_NAME checkout $project_name -${RESET}\` to reset $(format_variable "REF") and check out the repository's default branch. Without $(format_variable "REF"), the checked out branch is followed."
 		return
 	fi
 	if [ "$checkout_ref" = "-" ]; then
@@ -1870,21 +1874,45 @@ command_checkout() {  # args: $project_name, reads: $checkout_ref $env_file $ena
 			echo -e "No $(format_variable "REF") is set."
 			return
 		fi
+		# Switch to the remote's default branch before clearing REF, so a failed checkout leaves the pin in place
+		if check_git_path "$gitpath"; then
+			if [ -n "$repo_url" ]; then
+				repo_pat_url=$(get_repo_pat_url "$repo_url" "$use_global_pat" "$local_pat") || { format_error "Could not get repository PAT URL."; return 1; }
+				sync_git_origin_url "$repo_pat_url"
+			fi
+			echo "Determining the repository's default branch ..."
+			local default_ref default_branch
+			local queried_remote=false
+			if git -C "$gitpath" remote set-head origin --auto >/dev/null 2>&1; then
+				queried_remote=true
+			fi
+			default_ref=$(git -C "$gitpath" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) || default_ref=""
+			default_branch="${default_ref#origin/}"
+			if [ -z "$default_branch" ]; then
+				format_error "Could not determine the repository's default branch, $(format_variable "REF") was not reset."
+				return 1
+			fi
+			if ! $queried_remote; then
+				format_warning "Could not query the remote, using the previously recorded default branch '$default_branch'."
+			fi
+			ref="$default_branch"
+			checkout_git_ref || { format_error "$(format_variable "REF") was not reset."; return 1; }
+		fi
 		local env_tmp
 		env_tmp=$(mktemp) || { format_error "Failed to reset $(format_variable "REF")."; return 1; }
 		grep -v "^REF=" "$env_file" > "$env_tmp" && mv "$env_tmp" "$env_file" || { rm -f "$env_tmp"; format_error "Failed to reset $(format_variable "REF")."; return 1; }
 		chmod 600 "$env_file"
-		format_success "Reset $(format_variable "REF") in $(format_path "$env_file")."
+		ref=""
 		if check_git_path "$gitpath"; then
-			local head_name
-			head_name=$(git -C "$gitpath" rev-parse --abbrev-ref HEAD 2>/dev/null)
-			if [ "$head_name" = "HEAD" ]; then
-				format_warning "Repository is not on a branch, so update will not follow one until a branch is checked out."
+			format_success "Reset $(format_variable "REF") and checked out the default branch '$default_branch'."
+			if $enabled; then
+				command_update "$project_name" || { format_error "$(format_variable "REF") was reset, but updating failed. Fix the problem and run $(format_command "update") again."; return 1; }
 			else
-				echo -e "Branch $(format_path "$head_name") will be followed on update."
+				echo -e "Project is disabled, enable it with \`${BOLD}$SCRIPT_NAME enable $project_name${RESET}\`."
 			fi
 		else
-			echo "The currently checked out branch will be followed once the repository is cloned."
+			format_success "Reset $(format_variable "REF") in $(format_path "$env_file")."
+			echo "The repository's default branch will be checked out when it is cloned."
 		fi
 		return
 	fi
@@ -1893,7 +1921,7 @@ command_checkout() {  # args: $project_name, reads: $checkout_ref $env_file $ena
 			format_error "Project $(format_project "$project_name") has no git repository."
 			return 1
 		fi
-		write_env_value "REF" "$checkout_ref"
+		write_env_value "REF" "$checkout_ref" || return 1
 		format_success "Set $(format_variable "REF")=$checkout_ref, it will be checked out when the repository is cloned on $(format_command "enable")."
 		return
 	fi
@@ -1909,7 +1937,7 @@ command_checkout() {  # args: $project_name, reads: $checkout_ref $env_file $ena
 			return 1
 		}
 	fi
-	write_env_value "REF" "$ref"
+	write_env_value "REF" "$ref" || return 1
 	echo -e "Set $(format_variable "REF")=$ref in $(format_path "$env_file")."
 	if $enabled; then
 		command_update "$project_name" || { format_error "$(format_variable "REF") is set, but updating failed, fix the problem and run $(format_command "update") again."; return 1; }
