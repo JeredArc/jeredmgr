@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ####################################################################
-# JeredMgr 1.1.6                                                  #
+# JeredMgr 1.1.7                                                  #
 # A tool that helps you install, run, and update multiple projects #
 # using Docker containers, systemd services, or custom scripts.    #
 ####################################################################
@@ -119,7 +119,7 @@ list_commands() {  # args: none, reads: none, sets: none
 	echo -e "   $(format_command "help")                Show help"
 	echo -e "   $(format_command "add")                 Add a new (for now disabled) project (create its $(format_path ".env") file)"
 	echo -e "   $(format_command "remove")              Remove project(s) (check for them being disabled, then delete their $(format_path ".env") file)"
-	echo -e "   $(format_command "list")                List all projects"
+	echo -e "   $(format_command "list")                List project(s) with status, path, and specified ${DARKGRAY}REF${RESET}"
 	echo -e "   $(format_command "enable") $(format_project "[project]")    Install and enable project(s), run again to re-install"
 	echo -e "   $(format_command "disable") $(format_project "[project]")   Disable and uninstall project(s)"
 	echo -e "   $(format_command "start") $(format_project "[project]")     Start enabled project(s)"
@@ -133,7 +133,7 @@ list_commands() {  # args: none, reads: none, sets: none
 	echo -e "   $(format_command "shell") $(format_project "<project>")     Open a shell in the project container"
 	echo -e "   $(format_command "dc") $(format_project "<project>") ${ITALIC}${DARKGRAY}<args>${RESET}  Run ${BOLD}\`docker compose\`${RESET} with arbitrary arguments in the project's context (all arguments after the project are passed unparsed)"
 	echo -e "   $(format_command "update") $(format_project "[project]")    Update project(s) using git. With all projects, self-update is run at first. If you don't want that, use ${ITALIC}${DARKGRAY}'++'${RESET} as project name."
-	echo -e "   $(format_command "checkout") $(format_project "<project>") ${ITALIC}${DARKGRAY}<ref>${RESET}  Set the project's ${DARKGRAY}REF${RESET} to a branch (followed on update) or a tag/commit (pinned, e.g. ${ITALIC}${DARKGRAY}'HEAD'${RESET} for the current one) and check it out, updating the project if enabled"
+	echo -e "   $(format_command "checkout") $(format_project "<project>") ${ITALIC}${DARKGRAY}[ref]${RESET}  Set the project's ${DARKGRAY}REF${RESET} to a branch (followed on update) or a tag/commit (pinned, e.g. ${ITALIC}${DARKGRAY}'HEAD'${RESET} for the current one) and check it out, updating the project if enabled. With no ${ITALIC}${DARKGRAY}<ref>${RESET}, show the current ${DARKGRAY}REF${RESET} (branch, tag, or commit). ${ITALIC}${DARKGRAY}'-'${RESET} clears it"
 	echo -e "   $(format_command "self-update") | $(format_command "sup")   Update manager script"
 	echo -e ""
 	format_header "# Project specification:"
@@ -240,6 +240,7 @@ show_help() {  # args: none, reads: none, sets: none
 	echo -e ""
 	echo -e "- To use a different branch or pin a tag or commit, set the ${DARKGRAY}REF${RESET} variable in the $(format_path ".env") file or use the $(format_command "checkout") command"
 	echo -e "  A remote branch name takes precedence over a tag or commit with the same name. Without ${DARKGRAY}REF${RESET}, the currently checked out branch is followed."
+	echo -e "  $(format_command "checkout") without a ${ITALIC}${DARKGRAY}<ref>${RESET} shows the current one. Pass ${ITALIC}${DARKGRAY}'-'${RESET} to clear ${DARKGRAY}REF${RESET}."
 	echo -e "  Switching is refused if the repository has local changes to tracked files, unless $(format_option "-f")/$(format_option "--force") is used (git then keeps non-conflicting changes)."
 	echo -e ""
 	echo -e "- Global settings can be stored in $(format_path "global-config.env") in JeredMgr's directory:"
@@ -954,8 +955,8 @@ command_remove() {  # args: $project_name, reads: $env_file $project_name $enabl
 	format_success "Successfully removed project $(format_project "$project_name")."
 }
 
-# Command: List a single project with its enabled status and path.
-command_list() {  # args: $project_name, reads: $enabled $project_name $path, sets: none
+# Command: List a single project with its enabled status, path, and specified REF.
+command_list() {  # args: $project_name, reads: $enabled $project_name $path $ref, sets: none
 	load_project_values "$1" || return 1
 	local statusicon
 	if $enabled; then
@@ -970,7 +971,7 @@ command_list() {  # args: $project_name, reads: $enabled $project_name $path, se
 	else
 		statusicon="✗"
 	fi
-	echo -e "$(format_status "$statusicon") $(format_project "$project_name"): $(format_path "$path")"
+	echo -e "$(format_status "$statusicon") $(format_project "$project_name"): $(format_path "$path")$([ -n "$ref" ] && echo " ($(format_path "$ref"))")"
 }
 
 # Utility: Run setup.sh if present and perform type-specific install/setup logic for the project.
@@ -1824,12 +1825,68 @@ command_update() {  # args: $project_name, reads: $path $repo_url $use_global_pa
 	fi
 }
 
-# Command: Set the project's REF (branch to follow, or tag/commit to pin) and check it out, updating (installing and restarting) the project if enabled.
-command_checkout() {  # args: $project_name, reads: $checkout_ref $env_file $enabled $gitpath $repo_url $use_global_pat $local_pat, sets: $ref
+# Command: Set the project's REF (branch to follow, or tag/commit to pin) and check it out, updating (installing and restarting) the project if enabled. With no ref, show the current one. '-' clears REF.
+command_checkout() {  # args: $project_name, reads: $checkout_ref $env_file $enabled $gitpath $repo_url $use_global_pat $local_pat $ref $project_name, sets: $ref
 	load_project_values "$1" || return 1
 	if [ -z "$checkout_ref" ]; then
-		format_error "Please specify a branch, tag or commit to check out!"
-		return 1
+		# Show the configured REF and whether it is a branch, tag, or commit. With none set, show the checkout instead.
+		if [ -n "$ref" ]; then
+			local ref_kind
+			if ! check_git_path "$gitpath"; then
+				ref_kind="repository not cloned yet"
+			elif [ "$ref" = "HEAD" ]; then  # origin/HEAD exists, but checkout treats HEAD as the current commit
+				ref_kind="commit"
+			elif git -C "$gitpath" rev-parse --verify --quiet "refs/remotes/origin/$ref" >/dev/null; then
+				ref_kind="branch"
+			elif git -C "$gitpath" rev-parse --verify --quiet "refs/tags/$ref" >/dev/null; then
+				ref_kind="tag"
+			elif git -C "$gitpath" rev-parse --verify --quiet "refs/heads/$ref" >/dev/null; then
+				ref_kind="branch"
+			elif git -C "$gitpath" rev-parse --verify --quiet "$ref^{commit}" >/dev/null; then
+				ref_kind="commit"
+			else
+				ref_kind="not a branch, tag, or commit in this repository"
+			fi
+			echo -e "$(format_variable "REF")=$(format_path "$ref") ($ref_kind)"
+		elif check_git_path "$gitpath"; then
+			local head_name head_tag head_short
+			head_name=$(git -C "$gitpath" rev-parse --abbrev-ref HEAD 2>/dev/null)
+			head_short=$(git -C "$gitpath" rev-parse --short HEAD 2>/dev/null)
+			if [ "$head_name" != "HEAD" ]; then
+				echo -e "No $(format_variable "REF") is set. Currently checked out: branch $(format_path "$head_name")"
+			elif head_tag=$(git -C "$gitpath" describe --exact-match --tags HEAD 2>/dev/null); then
+				echo -e "No $(format_variable "REF") is set. Currently checked out: tag $(format_path "$head_tag") ($(format_path "$head_short"))"
+			else
+				echo -e "No $(format_variable "REF") is set. Currently checked out: commit $(format_path "$head_short")"
+			fi
+		else
+			echo -e "No $(format_variable "REF") is set."
+		fi
+		echo -e "Use \`${BOLD}$SCRIPT_NAME checkout $project_name -${RESET}\` to reset $(format_variable "REF"). Without $(format_variable "REF"), the currently checked out branch is followed."
+		return
+	fi
+	if [ "$checkout_ref" = "-" ]; then
+		if ! grep -q "^REF=" "$env_file"; then
+			echo -e "No $(format_variable "REF") is set."
+			return
+		fi
+		local env_tmp
+		env_tmp=$(mktemp) || { format_error "Failed to reset $(format_variable "REF")."; return 1; }
+		grep -v "^REF=" "$env_file" > "$env_tmp" && mv "$env_tmp" "$env_file" || { rm -f "$env_tmp"; format_error "Failed to reset $(format_variable "REF")."; return 1; }
+		chmod 600 "$env_file"
+		format_success "Reset $(format_variable "REF") in $(format_path "$env_file")."
+		if check_git_path "$gitpath"; then
+			local head_name
+			head_name=$(git -C "$gitpath" rev-parse --abbrev-ref HEAD 2>/dev/null)
+			if [ "$head_name" = "HEAD" ]; then
+				format_warning "Repository is not on a branch, so update will not follow one until a branch is checked out."
+			else
+				echo -e "Branch $(format_path "$head_name") will be followed on update."
+			fi
+		else
+			echo "The currently checked out branch will be followed once the repository is cloned."
+		fi
+		return
 	fi
 	if ! check_git_path "$gitpath"; then
 		if [ -z "$repo_url" ]; then
@@ -2100,6 +2157,20 @@ while [[ $# -gt 0 ]]; do
 		--internal-recursive)
 			option_internal_recursive=true
 			shift
+			;;
+		-)
+			if [ "$command" = "checkout" ] && [ -z "$checkout_ref" ]; then
+				if [ -z "$project_name" ]; then
+					format_error "Please specify a project name before '-'!"
+					exit 1
+				fi
+				checkout_ref="-"
+				shift
+			else
+				format_error "Unknown option: '$1'!"
+				list_commands
+				exit 1
+			fi
 			;;
 		-*)
 			format_error "Unknown option: '$1'!"
